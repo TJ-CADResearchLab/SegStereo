@@ -170,8 +170,10 @@ class ACVNet(nn.Module):
         patch_l3 = self.patch_l3(gwc_volume[:, 24:40])
         patch_volume = torch.cat((patch_l1,patch_l2,patch_l3), dim=1)
         concat_volume = build_concat_volume(features_left["concat_feature"], features_right["concat_feature"], self.maxdisp // 4)
-        cost_attention = self.dres1_att(patch_volume)
-        cost_attention = self.dres2_att(cost_attention)
+        cost_attention = self.dres1_att(patch_volume)   #   [1, 16, 48, 64, 128]
+
+        cost_attention = self.dres2_att(cost_attention)     #   [1, 16, 48, 64, 128]
+
         att_weights = self.classif_att(cost_attention)
         ac_volume = att_weights * concat_volume
 
@@ -229,3 +231,12 @@ class ACVNet(nn.Module):
 
 def acv(d):
     return ACVNet(d)
+
+if __name__=="__main__":
+
+    model=ACVNet(maxdisp=192)
+    left=torch.rand([1,3,256,512])
+    right=torch.rand([1,3,256,512])
+    model.train()
+    out=model(left,right)
+   # print(out[0].shape,out[1].shape,out[2].shape,out[3].shape)

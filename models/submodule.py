@@ -43,8 +43,8 @@ class Conv2x(nn.Module):
     def __init__(self, in_channels, out_channels, deconv=False, is_3d=False, concat=True, keep_concat=True, bn=True, relu=True, keep_dispc=False):
         super(Conv2x, self).__init__()
         self.concat = concat
-        self.is_3d = is_3d 
-        if deconv and is_3d: 
+        self.is_3d = is_3d
+        if deconv and is_3d:
             kernel = (4, 4, 4)
         elif deconv:
             kernel = 4
@@ -59,7 +59,7 @@ class Conv2x(nn.Module):
         else:
             self.conv1 = BasicConv(in_channels, out_channels, deconv, is_3d, bn=True, relu=True, kernel_size=kernel, stride=2, padding=1)
 
-        if self.concat: 
+        if self.concat:
             mul = 2 if keep_concat else 1
             self.conv2 = BasicConv(out_channels*2, out_channels*mul, False, is_3d, bn, relu, kernel_size=3, stride=1, padding=1)
         else:
@@ -74,7 +74,7 @@ class Conv2x(nn.Module):
                 mode='nearest')
         if self.concat:
             x = torch.cat((x, rem), 1)
-        else: 
+        else:
             x = x + rem
         x = self.conv2(x)
         return x
@@ -170,12 +170,54 @@ def convTrans_3d_dw(in_channels, out_channels, kernel_size, pad, output_pad, str
                          nn.ConvTranspose3d(out_channels, out_channels, kernel_size=kernel_size, stride=stride,
                                    padding=pad, output_padding=output_pad, bias=False, groups=out_channels))
 
-def disparity_regression(x, maxdisp):
+def disparity_regression(x, maxdisp,step=1):
     assert len(x.shape) == 4
-    disp_values = torch.arange(0, maxdisp, dtype=x.dtype, device=x.device)
-    disp_values = disp_values.view(1, maxdisp, 1, 1)
+    disp_values = torch.arange(0, maxdisp, dtype=x.dtype, device=x.device,step=step)
+    disp_values = disp_values.view(1, maxdisp//step, 1, 1)
     return torch.sum(x * disp_values, 1, keepdim=False)
 
+
+
+def get_cur_disp_range_samples(cur_disp, ndisp, disp_inteval_pixel):
+
+    cur_disp_min = (cur_disp - ndisp / 2 * disp_inteval_pixel)  # (B, H, W)
+    cur_disp_max = (cur_disp + ndisp / 2 * disp_inteval_pixel)
+
+    new_interval = (cur_disp_max - cur_disp_min) / (ndisp - 1)  # (B, H, W)
+
+    disp_range_samples = cur_disp_min.unsqueeze(1) + (torch.arange(0, ndisp, device=cur_disp.device,
+                                                                    dtype=cur_disp.dtype,
+                                                                    requires_grad=False).reshape(1, -1, 1,
+                                                                                                1) * new_interval.unsqueeze(1))
+    return disp_range_samples
+
+
+def build_concat_volume_with_shift(x, y, ndisp ,datum):
+
+    disp_range_samples=get_cur_disp_range_samples(datum,ndisp,disp_inteval_pixel=1)
+
+    assert (x.is_contiguous() == True)
+    bs, channels, height, width = x.size()
+    cost = x.new().resize_(bs, channels * 2, ndisp, height, width).zero_()
+
+    mh, mw = torch.meshgrid([torch.arange(0, height, dtype=x.dtype, device=x.device),
+                             torch.arange(0, width, dtype=x.dtype, device=x.device)])  # (H *W)
+    mh = mh.reshape(1, 1, height, width).repeat(bs, ndisp, 1, 1)
+    mw = mw.reshape(1, 1, height, width).repeat(bs, ndisp, 1, 1)  # (B, D, H, W)
+
+    cur_disp_coords_y = mh
+    cur_disp_coords_x = mw - disp_range_samples
+
+    coords_x = cur_disp_coords_x / ((width - 1.0) / 2.0) - 1.0  # trans to -1 - 1
+    coords_y = cur_disp_coords_y / ((height - 1.0) / 2.0) - 1.0
+    grid = torch.stack([coords_x, coords_y], dim=4)  # (B, D, H, W, 2)
+    cost[:, x.size()[1]:, :, :, :] = F.grid_sample(y, grid.view(bs, ndisp * height, width, 2), mode='bilinear',
+                                                   padding_mode='zeros', align_corners=True).view(bs, channels, ndisp,
+                                                                                                  height, width)
+    tmp = x.unsqueeze(2).repeat(1, 1, ndisp, 1, 1)  # (B, C, D, H, W)
+    cost[:, :x.size()[1], :, :, :] = tmp
+    cost = cost.contiguous()
+    return cost
 
 def build_concat_volume(refimg_fea, targetimg_fea, maxdisp):
     B, C, H, W = refimg_fea.shape
@@ -225,12 +267,13 @@ def groupwise_correlation_norm(fea1, fea2, num_groups):
     return cost
 
 
-def build_gwc_volume(refimg_fea, targetimg_fea, maxdisp, num_groups):
+def build_gwc_volume(refimg_fea, targetimg_fea, maxdisp, num_groups,step=1):
     B, C, H, W = refimg_fea.shape
+    maxdisp=int(maxdisp//step)
     volume = refimg_fea.new_zeros([B, num_groups, maxdisp, H, W])
     for i in range(maxdisp):
         if i > 0:
-            volume[:, :, i, :, i:] = groupwise_correlation(refimg_fea[:, :, :, i:], targetimg_fea[:, :, :, :-i],
+            volume[:, :, i, :, i*step:] = groupwise_correlation(refimg_fea[:, :, :, i*step:], targetimg_fea[:, :, :, :-i*step],
                                                            num_groups)
         else:
             volume[:, :, i, :, :] = groupwise_correlation(refimg_fea, targetimg_fea, num_groups)
@@ -253,7 +296,7 @@ def patch_aggregation(gwc_volume, patch_weight):
 
     gwc_volume_pad = torch.nn.functional.pad(gwc_volume,pad=(1,1,1,1), mode="constant",value=0)
     gwc_volume_pad_unfold = gwc_volume_pad.unfold(3,3,1).unfold(4,3,1)   # [N,C,D,H,W,3,3]
-    gwc_volume_pad_unfold = gwc_volume_pad_unfold.contiguous().view(gwc_volumed.shape[0], gwc_volume.shape[1], gwc_volume.shape[2], gwc_volume.shape[3],gwc_volume.shape[4], -1).permute(0,1,5,2,3,4)
+    gwc_volume_pad_unfold = gwc_volume_pad_unfold.contiguous().view(gwc_volume.shape[0], gwc_volume.shape[1], gwc_volume.shape[2], gwc_volume.shape[3],gwc_volume.shape[4], -1).permute(0,1,5,2,3,4)
     gwc_volume_pad_unfold = patch_weight.view(gwc_volume.shape[0], gwc_volume.shape[1], 1, gwc_volume.shape[2], gwc_volume.shape[3],gwc_volume.shape[4]) * gwc_volume_pad_unfold
     gwc_volume = torch.sum(gwc_volume_pad_unfold, dim=2)
     return gwc_volume
@@ -427,13 +470,33 @@ class attention_block(nn.Module):
         if pad_r > 0 or pad_b > 0:
             x = x[:, :, :, :H0, :W0]
         return self.final1x1(x)
-        
 
-def disparity_variance(x, maxdisp, disparity):
+class UniformSampler(nn.Module):
+    def __init__(self):
+        super(UniformSampler, self).__init__()
+
+    def forward(self, min_disparity, max_disparity, number_of_samples=10):
+        """
+        Args:
+            :min_disparity: lower bound of disparity search range
+            :max_disparity: upper bound of disparity range predictor
+            :number_of_samples (default:10): number of samples to be genearted.
+        Returns:
+            :sampled_disparities: Uniformly generated disparity samples from the input search range.
+        """
+
+
+        multiplier = (max_disparity - min_disparity) / (number_of_samples + 1)   # B,1,H,W
+        range_multiplier = torch.arange(1.0, number_of_samples + 1, 1, device=min_disparity.device).view(number_of_samples, 1, 1)  #(number_of_samples, 1, 1)
+        sampled_disparities = min_disparity + multiplier * range_multiplier
+
+        return sampled_disparities
+
+def disparity_variance(x, maxdisp, disparity,step=1):
     # the shape of disparity should be B,1,H,W, return is the variance of the cost volume [B,1,H,W]
     assert len(x.shape) == 4
-    disp_values = torch.arange(0, maxdisp, dtype=x.dtype, device=x.device)
-    disp_values = disp_values.view(1, maxdisp, 1, 1)
+    disp_values = torch.arange(0, maxdisp, dtype=x.dtype, device=x.device,step=step)
+    disp_values = disp_values.view(1, maxdisp//step, 1, 1)
     disp_values = (disp_values - disparity) ** 2
     return torch.sum(x * disp_values, 1, keepdim=True)
 
@@ -465,11 +528,10 @@ class SpatialTransformer(nn.Module):
             :left_feature_map: expanded left image features.
         """
 
-        device = left_input.get_device()
-        left_y_coordinate = torch.arange(0.0, left_input.size()[3], device=device).repeat(left_input.size()[2])
-        # left_y_coordinate = torch.arange(0.0, left_input.size()[3]).repeat(left_input.size()[2])
+
+        left_y_coordinate = torch.arange(0.0, left_input.size()[3], device=left_input.device).repeat(left_input.size()[2])
         left_y_coordinate = left_y_coordinate.view(left_input.size()[2], left_input.size()[3])
-        #left_y_coordinate = torch.clamp(left_y_coordinate, min=0, max=left_input.size()[3] - 1)
+        left_y_coordinate = torch.clamp(left_y_coordinate, min=0, max=left_input.size()[3] - 1)
         left_y_coordinate = left_y_coordinate.expand(left_input.size()[0], -1, -1)
 
         right_feature_map = right_input.expand(disparity_samples.size()[1], -1, -1, -1, -1).permute([1, 2, 0, 3, 4])
@@ -481,12 +543,13 @@ class SpatialTransformer(nn.Module):
             disparity_samples.size()[1], -1, -1, -1).permute([1, 0, 2, 3]) - disparity_samples
 
         right_y_coordinate_1 = right_y_coordinate
-        right_y_coordinate = torch.clamp(right_y_coordinate, min=0, max=(right_input.size()[3] - 1))
+        right_y_coordinate = torch.clamp(right_y_coordinate, min=0, max=right_input.size()[3] - 1)
 
-        warped_right_feature_map = torch.gather(right_feature_map, dim=4, index=right_y_coordinate.expand(right_input.size()[1], -1, -1, -1, -1).permute([1, 0, 2, 3, 4]).long())
+        warped_right_feature_map = torch.gather(right_feature_map, dim=4, index=right_y_coordinate.expand(
+            right_input.size()[1], -1, -1, -1, -1).permute([1, 0, 2, 3, 4]).long())
 
         right_y_coordinate_1 = right_y_coordinate_1.unsqueeze(1)
-        warped_right_feature_map = (1 - ((right_y_coordinate_1 < 0) + \
+        warped_right_feature_map = (1 - ((right_y_coordinate_1 < 0) +
                                          (right_y_coordinate_1 > right_input.size()[3] - 1)).float()) * \
             (warped_right_feature_map) + torch.zeros_like(warped_right_feature_map)
 
@@ -539,5 +602,14 @@ def groupwise_correlation_4D(fea1, fea2, num_groups):
     assert cost.shape == (B, num_groups, D, H, W)
     return cost
 
-        
+if __name__=="__main__":
+
+    x = torch.rand([1, 3, 2, 4])
+    y = torch.rand([1, 3, 2, 4])
+    print(x,y)
+    ndisp=4
+    datum=torch.randint(3,[1, 2, 4])
+    print(datum)
+    res=build_concat_volume_with_shift(x, y, ndisp, datum)
+    print(res) # [1, 6, 4, 2, 4]
 
