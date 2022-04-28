@@ -100,8 +100,8 @@ def train():
         # training
         for batch_idx, sample in enumerate(TrainImgLoader):
 
-            if batch_idx == 20:
-                break
+        #    if batch_idx == 20:
+         #       break
             global_step = len(TrainImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
             do_summary = global_step % args.summary_freq == 0
@@ -119,7 +119,7 @@ def train():
         # # testing
         avg_test_scalars = AverageMeterDict()
         for batch_idx, sample in enumerate(TestImgLoader):
-
+          #  if batch_idx==10:break
             global_step = len(TestImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
             # do_summary = global_step % args.summary_freq == 0
@@ -127,12 +127,12 @@ def train():
             loss, scalar_outputs, image_outputs = test_sample(sample, compute_metrics=do_summary)
             if do_summary:
                save_scalars(logger, 'test', scalar_outputs, global_step)
-             #  save_images(logger, 'test', image_outputs, global_step)
+        
             avg_test_scalars.update(scalar_outputs)
             #del scalar_outputs, image_outputs
-            print('Epoch {}/{}, Iter {}/{}, test loss = {:.3f}, time = {:3f}'.format(epoch_idx, args.epochs,
+            print('Epoch {}/{}, Iter {}/{}, test EPE = {:.3f}, time = {:3f}'.format(epoch_idx, args.epochs,
                                                                                      batch_idx,
-                                                                                     len(TestImgLoader), loss,
+                                                                    len(TestImgLoader), sum(scalar_outputs["EPE"])/len(scalar_outputs["EPE"]),
                                                                                      time.time() - start_time))
         avg_test_scalars = avg_test_scalars.mean()
         save_scalars(logger, 'fulltest', avg_test_scalars, len(TrainImgLoader) * (epoch_idx + 1))
@@ -142,7 +142,7 @@ def train():
         if (epoch_idx + 1) % args.save_freq == 0:
             checkpoint_data = {'epoch': epoch_idx, 'model': model.state_dict(), 'optimizer': optimizer.state_dict()}
             #id_epoch = (epoch_idx + 1) % 100
-            torch.save(checkpoint_data, "{}/checkpoint_{:0>6}_epe_{}.ckpt".format(args.logdir, epoch_idx,avg_test_scalars))
+            torch.save(checkpoint_data, "{}/checkpoint_{:0>3}_epe_{:.3f}.ckpt".format(args.logdir, epoch_idx,avg_test_scalars["EPE"][0]))
         gc.collect()
 
 
