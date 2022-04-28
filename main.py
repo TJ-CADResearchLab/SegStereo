@@ -25,7 +25,7 @@ cudnn.benchmark = True
 os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
 
 parser = argparse.ArgumentParser(description='Attention Concatenation Volume for Accurate and Efficient Stereo Matching (ACVNet)')
-parser.add_argument('--model', default='acvnet', help='select a model structure', choices=__models__.keys())
+parser.add_argument('--model', default='attnet', help='select a model structure', choices=__models__.keys())
 parser.add_argument('--maxdisp', type=int, default=192, help='maximum disparity')
 
 parser.add_argument('--dataset', default='sceneflow', help='dataset name', choices=__datasets__.keys())

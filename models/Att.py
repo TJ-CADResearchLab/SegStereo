@@ -299,7 +299,7 @@ class AttNet(nn.Module):
             return [pred2]
 
 
-def acv(d):
+def att(d):
     return AttNet(d)
 
 
