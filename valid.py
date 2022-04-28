@@ -93,43 +93,21 @@ elif args.loadckpt!='none':
 print("start at epoch {}".format(start_epoch))
 
 
-def train():
-    for epoch_idx in range(start_epoch, args.epochs):
-        adjust_learning_rate(optimizer, epoch_idx, args.lr, args.lrepochs)
-
-        # training
-        for batch_idx, sample in enumerate(TrainImgLoader):
-
-        #    if batch_idx == 20:
-         #       break
-            global_step = len(TrainImgLoader) * epoch_idx + batch_idx
-            start_time = time.time()
-            do_summary = global_step % args.summary_freq == 0
-            loss,scalar_outputs= train_sample(sample, compute_metrics=do_summary)
-            if do_summary:
-                save_scalars(logger, 'train', scalar_outputs, global_step)
-
-            del scalar_outputs
-            print('Epoch {}/{}, Iter {}/{}, train loss = {:.3f}, time = {:.3f}'.format(epoch_idx, args.epochs,
-                                                                                       batch_idx,
-                                                                                       len(TrainImgLoader), loss,
-                                                                                       time.time() - start_time))
-        gc.collect()
-
+def valid():
+    epoch_idx=0
+    if epoch_idx==0:
         # # testing
         avg_test_scalars = AverageMeterDict()
         for batch_idx, sample in enumerate(TestImgLoader):
-          #  if batch_idx==10:break
+            if batch_idx==10:break
             global_step = len(TestImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
-            # do_summary = global_step % args.summary_freq == 0
-            do_summary = global_step % 1 == 0
-            loss, scalar_outputs, image_outputs = test_sample(sample, compute_metrics=do_summary)
-            if do_summary:
-               save_scalars(logger, 'test', scalar_outputs, global_step)
-        
-            avg_test_scalars.update(scalar_outputs)
 
+            loss, scalar_outputs, image_outputs = test_sample(sample, compute_metrics=True)
+
+            save_scalars(logger, 'test', scalar_outputs, global_step)
+            save_images(logger, 'test', image_outputs, global_step)
+            avg_test_scalars.update(scalar_outputs)
             print('Epoch {}/{}, Iter {}/{}, test EPE = {:.3f}, time = {:3f}'.format(epoch_idx, args.epochs,
                                                                                      batch_idx,
                                                                     len(TestImgLoader), sum(scalar_outputs["EPE"])/len(scalar_outputs["EPE"]),
@@ -138,55 +116,30 @@ def train():
         save_scalars(logger, 'fulltest', avg_test_scalars, len(TrainImgLoader) * (epoch_idx + 1))
         print("avg_test_scalars", avg_test_scalars)
 
-        # saving checkpoints
-        if (epoch_idx + 1) % args.save_freq == 0:
-            checkpoint_data = {'epoch': epoch_idx, 'model': model.state_dict(), 'optimizer': optimizer.state_dict()}
-            #id_epoch = (epoch_idx + 1) % 100
-            torch.save(checkpoint_data, "{}/checkpoint_{:0>3}_epe_{:.3f}.ckpt".format(args.logdir, epoch_idx,avg_test_scalars["EPE"][0]))
         gc.collect()
 
 
-# train one sample
-def train_sample(sample, compute_metrics=False):
-    model.train()
-    imgL, imgR, disp_gt = sample['left'], sample['right'], sample['disparity']
-    imgL = imgL.cuda()
-    imgR = imgR.cuda()
-    disp_gt = disp_gt.cuda()
-    optimizer.zero_grad()
-    disp_ests = model(imgL, imgR)
-    mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
-    loss = model_loss_train(disp_ests, disp_gt, mask)
-    scalar_outputs = {"loss": loss}
-    image_outputs = {"disp_est": disp_ests, "disp_gt": disp_gt, "imgL": imgL, "imgR": imgR}
-    if compute_metrics:
-        with torch.no_grad():
-            image_outputs["errormap"] = [disp_error_image_func.apply(disp_est, disp_gt) for disp_est in disp_ests]
-            scalar_outputs["EPE"] = [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
-            scalar_outputs["D1"] = [D1_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
-            # scalar_outputs["Thres1"] = [Thres_metric(disp_est, disp_gt, mask, 1.0) for disp_est in disp_ests]
-            # scalar_outputs["Thres2"] = [Thres_metric(disp_est, disp_gt, mask, 2.0) for disp_est in disp_ests]
-            # scalar_outputs["Thres3"] = [Thres_metric(disp_est, disp_gt, mask, 3.0) for disp_est in disp_ests]
-    loss.backward()
-    optimizer.step()
-    return tensor2float(loss), tensor2float(scalar_outputs)
 
 
 # test one sample
 @make_nograd_func
-def test_sample(sample, compute_metrics=True):
+def test_sample(sample):
     model.eval()
     imgL, imgR, disp_gt = sample['left'], sample['right'], sample['disparity']
     imgL = imgL.cuda()
     imgR = imgR.cuda()
     disp_gt = disp_gt.cuda()
     mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
-    disp_ests = model(imgL, imgR)
+    res = model(imgL, imgR,valid=True)
+    disp_ests,att0,att1,disp_sample=res[0],res[1],res[2],res[3]
     disp_gts = [disp_gt, disp_gt, disp_gt, disp_gt, disp_gt, disp_gt]
     loss = model_loss_test(disp_ests, disp_gt, mask)
     scalar_outputs = {"loss": loss}
     image_outputs = {"disp_est": disp_ests, "disp_gt": disp_gts, "imgL": imgL, "imgR": imgR}
     image_outputs["errormap"] = [disp_error_image_func.apply(disp_est, disp_gt) for disp_est in disp_ests]
+    image_outputs["attention0"]=att0
+    image_outputs["attention1"]=att1
+    print('disp_sample',disp_sample)
     scalar_outputs["EPE"] = [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
     scalar_outputs["D1"] = [D1_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
     scalar_outputs["Thres1"] = [Thres_metric(disp_est, disp_gt, mask, 1.0) for disp_est in disp_ests]
@@ -197,4 +150,4 @@ def test_sample(sample, compute_metrics=True):
 
 
 if __name__ == '__main__':
-    train()
+    valid()

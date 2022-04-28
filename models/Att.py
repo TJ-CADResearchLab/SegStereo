@@ -228,7 +228,7 @@ class AttNet(nn.Module):
 
         return min_disparity, max_disparity
 
-    def forward(self, left, right):
+    def forward(self, left, right,valid=False):
         features_left = self.feature_extraction(
             left)  # gwc_feature [b, 320, 1/4h , 1/4w]; concat_feature [b, 32, 1/4h, 1/4w]
         features_right = self.feature_extraction(right)
@@ -294,10 +294,10 @@ class AttNet(nn.Module):
 
         if self.training:
             return [pred_attention, pred0, pred1, pred2]
-
+        elif valid:
+            return [pred2,pix_att0.squeeze(1),pix_att1.squeeze(1),disparity_samples]
         else:
             return [pred2]
-
 
 def att(d):
     return AttNet(d)
