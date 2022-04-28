@@ -170,11 +170,11 @@ def convTrans_3d_dw(in_channels, out_channels, kernel_size, pad, output_pad, str
                          nn.ConvTranspose3d(out_channels, out_channels, kernel_size=kernel_size, stride=stride,
                                    padding=pad, output_padding=output_pad, bias=False, groups=out_channels))
 
-def disparity_regression(x, maxdisp,step=1):
+def disparity_regression(x, maxdisp,step=1,keepdim=False):
     assert len(x.shape) == 4
     disp_values = torch.arange(0, maxdisp, dtype=x.dtype, device=x.device,step=step)
     disp_values = disp_values.view(1, maxdisp//step, 1, 1)
-    return torch.sum(x * disp_values, 1, keepdim=False)
+    return torch.sum(x * disp_values, 1, keepdim=keepdim)
 
 
 

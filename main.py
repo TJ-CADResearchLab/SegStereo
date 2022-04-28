@@ -22,7 +22,7 @@ import gc
 import cv2
 
 cudnn.benchmark = True
-os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 parser = argparse.ArgumentParser(description='Attention Concatenation Volume for Accurate and Efficient Stereo Matching (ACVNet)')
 parser.add_argument('--model', default='attnet', help='select a model structure', choices=__models__.keys())
@@ -82,7 +82,7 @@ if args.resume:
     model.load_state_dict(state_dict['model'])
     optimizer.load_state_dict(state_dict['optimizer'])
     start_epoch = state_dict['epoch'] + 1
-elif args.loadckpt:
+elif args.loadckpt!='none':
     # load the checkpoint file specified by args.loadckpt
     print("loading model {}".format(args.loadckpt))
     state_dict = torch.load(args.loadckpt)

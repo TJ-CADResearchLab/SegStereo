@@ -248,7 +248,7 @@ class AttNet(nn.Module):
         att_weights = torch.squeeze(att_weights, 1)  # att [batch, 24 ,1/4h, 1/4w]
         pred_attention_pos = F.softmax(att_weights, dim=1)
         pred_attention = disparity_regression(pred_attention_pos, self.maxdisp // 4,
-                                              step=2)  # pred [batch, 1/4h , 1/4w]
+                                              step=2,keepdim=True)  # predatt [batch, 1, 1/4h , 1/4w]
 
         pred2_s4_cur = pred_attention.detach()
         pred2_v_s4 = disparity_variance(pred_attention_pos, self.maxdisp // 4, pred2_s4_cur, step=2)  # get the variance
@@ -276,7 +276,7 @@ class AttNet(nn.Module):
                            align_corners=True).squeeze(1)  # pred0 [batch, 1, 1/4h, 1/4w]
 
 
-        out1 = self.dres2(cost0*pix_att0*pred0_pos)
+        out1 = self.dres2(cost0*pix_att0.unsqueeze(1)*pred0_pos.unsqueeze(1))
         cost1 = self.classif1(out1).squeeze(1)  # cost1 [batch, 12, 1/4h, 1/4w]
         pred1_pos = F.softmax(cost1, dim=1)
         pred1 = torch.sum(pred1_pos * disparity_samples, dim=1,keepdim=True)
@@ -285,12 +285,12 @@ class AttNet(nn.Module):
         pix_att1=F.sigmoid(pred1_u)*self.alfa1  # pix_att1 [batch, 1, 1/4h, 1/4w]
         pred1 = F.upsample(pred1 * 4, [left.size()[2], left.size()[3]], mode='bilinear', align_corners=True).squeeze(1)
 
-        out2 = self.dres3(out1*pix_att1*pred1_pos)
+        out2 = self.dres3(out1*pix_att1.unsqueeze(1)*pred1_pos.unsqueeze(1))
         cost2 = self.classif2(out2).squeeze(1)  # cost2 [batch, 12, 1/4h, 1/4w]
         pred2_pos = F.softmax(cost2, dim=1)
         pred2= torch.sum(pred2_pos * disparity_samples, dim=1,keepdim=True)
         pred2 = F.upsample(pred2 * 4, [left.size()[2], left.size()[3]], mode='bilinear', align_corners=True).squeeze(1)
-
+        pred_attention=F.upsample(pred_attention*4, [left.size()[2], left.size()[3]], mode='bilinear', align_corners=True).squeeze(1)
 
         if self.training:
             return [pred_attention, pred0, pred1, pred2]
