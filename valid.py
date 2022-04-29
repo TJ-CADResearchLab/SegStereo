@@ -103,7 +103,7 @@ def valid():
             global_step = len(TestImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
 
-            loss, scalar_outputs, image_outputs = test_sample(sample, compute_metrics=True)
+            loss, scalar_outputs, image_outputs = test_sample(sample)
 
             save_scalars(logger, 'test', scalar_outputs, global_step)
             save_images(logger, 'test', image_outputs, global_step)
@@ -131,15 +131,15 @@ def test_sample(sample):
     disp_gt = disp_gt.cuda()
     mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
     res = model(imgL, imgR,valid=True)
-    disp_ests,att0,att1,disp_sample=res[0],res[1],res[2],res[3]
+    disp_ests,att0,att1,disp_sample=[res[0]],res[1],res[2],res[3]
     disp_gts = [disp_gt, disp_gt, disp_gt, disp_gt, disp_gt, disp_gt]
     loss = model_loss_test(disp_ests, disp_gt, mask)
     scalar_outputs = {"loss": loss}
     image_outputs = {"disp_est": disp_ests, "disp_gt": disp_gts, "imgL": imgL, "imgR": imgR}
     image_outputs["errormap"] = [disp_error_image_func.apply(disp_est, disp_gt) for disp_est in disp_ests]
-    image_outputs["attention0"]=att0
-    image_outputs["attention1"]=att1
-    print('disp_sample',disp_sample)
+    image_outputs["attention0"]=[att0]
+    image_outputs["attention1"]=[att1]
+    
     scalar_outputs["EPE"] = [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
     scalar_outputs["D1"] = [D1_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
     scalar_outputs["Thres1"] = [Thres_metric(disp_est, disp_gt, mask, 1.0) for disp_est in disp_ests]

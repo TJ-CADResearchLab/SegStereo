@@ -144,9 +144,6 @@ class AttNet(nn.Module):
                                       nn.Conv3d(32, 1, kernel_size=3, padding=1, stride=1, bias=False))
         self.gamma_s3 = nn.Parameter(torch.zeros(1))
         self.beta_s3 = nn.Parameter(torch.zeros(1))
-        self.alfa0=nn.Parameter(torch.zeros(1))
-        self.alfa1 = nn.Parameter(torch.zeros(1))
-        self.alfa2= nn.Parameter(torch.zeros(1))
         self.spatial_transformer = SpatialTransformer()
         self.uniform_sampler = UniformSampler()
         for m in self.modules():
@@ -271,27 +268,26 @@ class AttNet(nn.Module):
         pred0 = torch.sum(pred0_pos * disparity_samples, dim=1,keepdim=True)
         pred0_cur=pred0.detach()
         pred0_u=disparity_variance_confidence(pred0_pos,disparity_samples,pred0_cur)
-        pix_att0=F.sigmoid(pred0_u)*self.alfa0  # pix_att0 [batch, 1, 1/4h, 1/4w]
+        pix_att0=F.sigmoid(pred0_u)  # pix_att0 [batch, 1, 1/4h, 1/4w]
         pred0 = F.upsample(pred0 * 4, [left.size()[2], left.size()[3]], mode='bilinear',
                            align_corners=True).squeeze(1)  # pred0 [batch, 1, 1/4h, 1/4w]
 
-
+        
         out1 = self.dres2(cost0*pix_att0.unsqueeze(1)*pred0_pos.unsqueeze(1))
         cost1 = self.classif1(out1).squeeze(1)  # cost1 [batch, 12, 1/4h, 1/4w]
         pred1_pos = F.softmax(cost1, dim=1)
         pred1 = torch.sum(pred1_pos * disparity_samples, dim=1,keepdim=True)
         pred1_cur=pred1.detach()
         pred1_u=disparity_variance_confidence(pred1_pos,disparity_samples,pred1_cur)
-        pix_att1=F.sigmoid(pred1_u)*self.alfa1  # pix_att1 [batch, 1, 1/4h, 1/4w]
+        pix_att1=F.sigmoid(pred1_u)  # pix_att1 [batch, 1, 1/4h, 1/4w]
         pred1 = F.upsample(pred1 * 4, [left.size()[2], left.size()[3]], mode='bilinear', align_corners=True).squeeze(1)
-
         out2 = self.dres3(out1*pix_att1.unsqueeze(1)*pred1_pos.unsqueeze(1))
         cost2 = self.classif2(out2).squeeze(1)  # cost2 [batch, 12, 1/4h, 1/4w]
         pred2_pos = F.softmax(cost2, dim=1)
         pred2= torch.sum(pred2_pos * disparity_samples, dim=1,keepdim=True)
         pred2 = F.upsample(pred2 * 4, [left.size()[2], left.size()[3]], mode='bilinear', align_corners=True).squeeze(1)
         pred_attention=F.upsample(pred_attention*4, [left.size()[2], left.size()[3]], mode='bilinear', align_corners=True).squeeze(1)
-
+    
         if self.training:
             return [pred_attention, pred0, pred1, pred2]
         elif valid:
