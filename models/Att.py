@@ -92,7 +92,6 @@ class hourglass(nn.Module):
         conv3 = self.conv3(conv2)
         conv4 = self.conv4(conv3)
 
-
         conv5 = F.relu(self.conv5(conv4) + self.redir2(conv2), inplace=True)
         conv6 = F.relu(self.conv6(conv5) + self.redir1(x), inplace=True)
 
@@ -162,7 +161,7 @@ class AttNet(nn.Module):
             elif isinstance(m, nn.Linear):
                 m.bias.data.zero_()
 
-    def generate_disparity_samples(self, min_disparity, max_disparity, sample_count=12):
+    def generate_disparity_samples(self, min_disparity, max_disparity, sample_count=10):
         """
         Description:    Generates "sample_count" number of disparity samples from the
                                                             search range (min_disparity, max_disparity)
@@ -225,7 +224,7 @@ class AttNet(nn.Module):
 
         return min_disparity, max_disparity
 
-    def forward(self, left, right,valid=False):
+    def forward(self, left, right, valid=False):
         features_left = self.feature_extraction(
             left)  # gwc_feature [b, 320, 1/4h , 1/4w]; concat_feature [b, 32, 1/4h, 1/4w]
         features_right = self.feature_extraction(right)
@@ -238,14 +237,12 @@ class AttNet(nn.Module):
         patch_l3 = self.patch_l3(gwc_volume[:, 24:40])
         patch_volume = torch.cat((patch_l1, patch_l2, patch_l3), dim=1)  # [batch, 40, 24, 1/4h, 1/4w]
 
-
-        cost_attention = self.dres1_att(patch_volume)   # [batch, 16, 24, 1/4h, 1/4w]
+        cost_attention = self.dres1_att(patch_volume)  # [batch, 16, 24, 1/4h, 1/4w]
         cost_attention = self.dres2_att(cost_attention)
-        att_weights = self.classif_att(cost_attention)
-        att_weights = torch.squeeze(att_weights, 1)  # att [batch, 24 ,1/4h, 1/4w]
-        pred_attention_pos = F.softmax(att_weights, dim=1)
+        att_weights = self.classif_att(cost_attention)  # att [batch, 1, 24, 1/4h, 1/4w]
+        pred_attention_pos = F.softmax(att_weights.squeeze(1), dim=1)   # att_pos [batch, 24, 1/4h, 1/4w]
         pred_attention = disparity_regression(pred_attention_pos, self.maxdisp // 4,
-                                              step=2,keepdim=True)  # predatt [batch, 1, 1/4h , 1/4w]
+                                              step=2, keepdim=True)  # predatt [batch, 1, 1/4h , 1/4w]
 
         pred2_s4_cur = pred_attention.detach()
         pred2_v_s4 = disparity_variance(pred_attention_pos, self.maxdisp // 4, pred2_s4_cur, step=2)  # get the variance
@@ -253,47 +250,83 @@ class AttNet(nn.Module):
 
         mindisparity_s3 = pred2_s4_cur - (self.gamma_s3 + 1) * pred2_v_s4 - self.beta_s3
         maxdisparity_s3 = pred2_s4_cur + (self.gamma_s3 + 1) * pred2_v_s4 + self.beta_s3
+
         mindisparity_s3_1, maxdisparity_s3_1 = self.generate_search_range(10 + 1, mindisparity_s3, maxdisparity_s3,
                                                                           scale=2)
-        disparity_samples = self.generate_disparity_samples(mindisparity_s3_1, maxdisparity_s3_1, 10).float()    # dis_sam [batch, 10+2, 1/4h, 1/4w]
+        disparity_samples = self.generate_disparity_samples(mindisparity_s3_1, maxdisparity_s3_1,
+                                                            10).float()  # dis_sam [batch, 10+2, 1/4h, 1/4w]
 
         ac_volume, _ = self.cost_volume_generator(features_left["concat_feature"],
-                                                  features_right["concat_feature"], disparity_samples, 'concat') # ac [batch, 64, 12, 1/4h, 1/4w]
+                                                  features_right["concat_feature"], disparity_samples,
+                                                  'concat')  # ac [batch, 64, 12, 1/4h, 1/4w]
 
         cost0 = self.dres0(ac_volume)
-        cost0 = self.dres1(cost0) + cost0   # cost0 [batch, 32, 12, 1/4h, 1/4w]
+        cost0 = self.dres1(cost0) + cost0  # cost0 [batch, 32, 12, 1/4h, 1/4w]
 
-        cost0_c = self.classif0(cost0).squeeze(1)   # cost0_c [batch, 12, 1/4h, 1/4w]
-        pred0_pos = F.softmax(cost0_c, dim=1)   # pre_pos [batch, 12, 1/4h, 1/4w]
-        pred0 = torch.sum(pred0_pos * disparity_samples, dim=1,keepdim=True)
-        pred0_cur=pred0.detach()
-        pred0_u=disparity_variance_confidence(pred0_pos,disparity_samples,pred0_cur)
-        pix_att0=F.sigmoid(pred0_u)  # pix_att0 [batch, 1, 1/4h, 1/4w]
-        pred0 = F.upsample(pred0 * 4, [left.size()[2], left.size()[3]], mode='bilinear',
-                           align_corners=True).squeeze(1)  # pred0 [batch, 1, 1/4h, 1/4w]
+        cost0_c = self.classif0(cost0)  # cost0_c [batch, 1, 12, 1/4h, 1/4w]
+        pred0_pos = F.softmax(cost0_c.squeeze(1), dim=1)  # pre_pos [batch, 12, 1/4h, 1/4w]
+        pred0 = torch.sum(pred0_pos * disparity_samples, dim=1, keepdim=True)
+        pred0_cur = pred0.detach()
+        pred0_u = disparity_variance_confidence(pred0_pos, disparity_samples, pred0_cur)
+        pix_att0 = F.sigmoid(pred0_u)  # pix_att0 [batch, 1, 1/4h, 1/4w]
 
-        
-        out1 = self.dres2(cost0*pix_att0.unsqueeze(1)*pred0_pos.unsqueeze(1))
-        cost1 = self.classif1(out1).squeeze(1)  # cost1 [batch, 12, 1/4h, 1/4w]
-        pred1_pos = F.softmax(cost1, dim=1)
-        pred1 = torch.sum(pred1_pos * disparity_samples, dim=1,keepdim=True)
-        pred1_cur=pred1.detach()
-        pred1_u=disparity_variance_confidence(pred1_pos,disparity_samples,pred1_cur)
-        pix_att1=F.sigmoid(pred1_u)  # pix_att1 [batch, 1, 1/4h, 1/4w]
-        pred1 = F.upsample(pred1 * 4, [left.size()[2], left.size()[3]], mode='bilinear', align_corners=True).squeeze(1)
-        out2 = self.dres3(out1*pix_att1.unsqueeze(1)*pred1_pos.unsqueeze(1))
-        cost2 = self.classif2(out2).squeeze(1)  # cost2 [batch, 12, 1/4h, 1/4w]
-        pred2_pos = F.softmax(cost2, dim=1)
-        pred2= torch.sum(pred2_pos * disparity_samples, dim=1,keepdim=True)
-        pred2 = F.upsample(pred2 * 4, [left.size()[2], left.size()[3]], mode='bilinear', align_corners=True).squeeze(1)
-        pred_attention=F.upsample(pred_attention*4, [left.size()[2], left.size()[3]], mode='bilinear', align_corners=True).squeeze(1)
-    
+
+        out1 = self.dres2(cost0 * pix_att0.unsqueeze(1) * pred0_pos.unsqueeze(1))
+        cost1 = self.classif1(out1)  # cost1 [batch, 1, 12, 1/4h, 1/4w]
+        pred1_pos = F.softmax(cost1.squeeze(1), dim=1)  # pre1_pos [batch, 12, 1/4h, 1/4w]
+        pred1 = torch.sum(pred1_pos * disparity_samples, dim=1, keepdim=True)
+        pred1_cur = pred1.detach()
+        pred1_u = disparity_variance_confidence(pred1_pos, disparity_samples, pred1_cur)
+        pix_att1 = F.sigmoid(pred1_u)  # pix_att1 [batch, 1, 1/4h, 1/4w]
+
+
+        out2 = self.dres3(out1 * pix_att1.unsqueeze(1) * pred1_pos.unsqueeze(1))
+        cost2 = self.classif2(out2)  # cost2 [batch, 1, 12, 1/4h, 1/4w]
+
+        maxdisparity_f = F.upsample(maxdisparity_s3 * 4, [left.size()[2], left.size()[3]],
+                                    mode='bilinear', align_corners=True)
+        mindisparity_f = F.upsample(mindisparity_s3 * 4, [left.size()[2], left.size()[3]],
+                                    mode='bilinear',
+                                    align_corners=True)
+
+        mindisparity_f, maxdisparity_f = self.generate_search_range(46 + 1, mindisparity_f,
+                                                                    maxdisparity_f, scale=0)
+        disparity_samples_f = self.generate_disparity_samples(mindisparity_f, maxdisparity_f,
+                                                              46).float()
+
         if self.training:
-            return [pred_attention, pred0, pred1, pred2]
-        elif valid:
-            return [pred2,pix_att0.squeeze(1),pix_att1.squeeze(1),disparity_samples]
+            att_weights = F.upsample(att_weights, [24*4, left.size()[2], left.size()[3]], mode='trilinear') # att [batch, 1, 96, h, w]
+            att_weights=torch.squeeze(att_weights,1)
+            att_pred =F.softmax(att_weights,dim=1)
+            att_pred = disparity_regression(att_pred, self.maxdisp,step=2)
+
+
+            cost0_c=F.upsample(cost0_c, [12*4, left.size()[2], left.size()[3]], mode='trilinear')   # cost0_c [batch, 1, 48, h, w]
+            cost0_c=torch.squeeze(cost0_c,1)    # cost0_c [batch, 48, h, w]
+            pred0_f=F.softmax(cost0_c,dim=1)
+            pred0_f=torch.sum(pred0_f*disparity_samples_f,dim=1,keepdim=False)
+
+            cost1=F.upsample(cost1, [12*4, left.size()[2], left.size()[3]], mode='trilinear')   # cost1 [batch, 1, 48, h, w]
+            cost1=torch.squeeze(cost1,1)    # cost0_c [batch, 48, h, w]
+            pred1_f=F.softmax(cost1,dim=1)
+            pred1_f=torch.sum(pred1_f*disparity_samples_f,dim=1,keepdim=False)
+
+            cost2=F.upsample(cost2, [12*4, left.size()[2], left.size()[3]], mode='trilinear')   # cost2 [batch, 1, 48, h, w]
+            cost2=torch.squeeze(cost2,1)    # cost2 [batch, 48, h, w]
+            pred2_f=F.softmax(cost2,dim=1)
+            pred2_f=torch.sum(pred2_f*disparity_samples_f,dim=1,keepdim=False)
+
+            return [att_pred, pred0_f, pred1_f, pred2_f]
+        # elif valid:
+        #     return [pred2, pix_att0.squeeze(1), pix_att1.squeeze(1), disparity_samples]
         else:
-            return [pred2]
+
+            cost2=F.upsample(cost2, [12*4, left.size()[2], left.size()[3]], mode='trilinear')   # cost2 [batch, 1, 48, h, w]
+            cost2=torch.squeeze(cost2,1)    # cost2 [batch, 48, h, w]
+            pred2_f=F.softmax(cost2,dim=1)
+            pred2_f=torch.sum(pred2_f*disparity_samples_f,dim=1,keepdim=False)
+            return [pred2_f]
+
 
 def att(d):
     return AttNet(d)
