@@ -12,9 +12,9 @@ import time
 
 
 class MSMNet_cost(nn.Module):
-    def __init__(self, second_range, max_disp=192):
+    def __init__(self, second_range=12, maxdisp=192):
         super(MSMNet_cost, self).__init__()
-        self.max_disp = max_disp
+        self.max_disp = maxdisp
         self.second_range = second_range
 
         self.conv1 = conv(3, 64, 7, 2)  # 1/2
