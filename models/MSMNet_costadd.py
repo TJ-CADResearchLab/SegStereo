@@ -173,9 +173,9 @@ class MSMNet_cost(nn.Module):
         pr0 = pr0 + res0
         pr0 = self.relu0(pr0)
         if self.training:
-            return [pr0, pr1, pr2, pr3, pr3_o]
+            return [pr0.squeeze(1), pr1.squeeze(1), pr2.squeeze(1), pr3.squeeze(1), pr3_o.squeeze(1)]
         else:
-            return pr0
+            return [pr0.squeeze(1)]
 
 
 class origin_agg(nn.Module):
