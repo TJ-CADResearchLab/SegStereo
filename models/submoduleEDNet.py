@@ -6,7 +6,7 @@ from torch.autograd import Variable
 from torch.autograd.function import Function
 import torch.nn.functional as F
 import numpy as np
-from layers_package.resample2d_package.resample2d import Resample2d
+
 
 def conv(in_planes, out_planes, kernel_size=3, stride=1, batchNorm=False):
     if batchNorm:
@@ -176,7 +176,7 @@ def get_disp_range_samples(cur_disp, ndisp, disp_inteval_pixel, device, dtype, s
 class res_submodule_attention(nn.Module):
     def __init__(self, scale, input_layer, value_planes=32, out_planes=64):
         super(res_submodule_attention, self).__init__()
-        self.resample = Resample2d()
+        self.resample = resample2d
         self.pool = nn.AvgPool2d(2 ** scale, 2 ** scale)
 
         self.attention = SA_Module(input_nc=10)
@@ -230,10 +230,9 @@ class res_submodule_attention(nn.Module):
         left = self.pool(left)
         right = self.pool(right)
 
-        dummy_flow = torch.autograd.Variable(torch.zeros(disp.data.shape).cuda())
         disp_ = disp / scale  # align the disparity to the proper scale
-        flow = torch.cat((disp_, dummy_flow), dim=1)
-        left_rec = self.resample(right, -flow)
+
+        left_rec = self.resample(right, disp_)   #   new  resample
         error_map = left - left_rec
 
         query = torch.cat((left, right, error_map, disp_), dim=1)
@@ -269,3 +268,34 @@ class SA_Module(nn.Module):
     def forward(self, x):
         attention_value = self.attention_value(x)
         return attention_value
+
+def resample2d(y, disp):
+
+    bs, channels, height, width = y.size()
+
+
+    mh, mw = torch.meshgrid([torch.arange(0, height, dtype=x.dtype, device=x.device),
+                                 torch.arange(0, width, dtype=x.dtype, device=x.device)])  # (H *W)
+
+
+    mh = mh.reshape(1, height, width).repeat(bs,  1, 1)
+    mw = mw.reshape(1, height, width).repeat(bs,  1, 1)  # (B, H, W)
+
+    cur_disp_coords_y = mh
+    cur_disp_coords_x = mw - disp
+
+    coords_x = cur_disp_coords_x / ((width - 1.0) / 2.0) - 1.0  # trans to -1 - 1
+    coords_y = cur_disp_coords_y / ((height - 1.0) / 2.0) - 1.0
+   # print(coords_x.shape,coords_y.shape)
+    grid = torch.stack([coords_x, coords_y], dim=3) #(B,  H, W, 2)
+
+    y_warped = F.grid_sample(y, grid, mode='bilinear',
+                               padding_mode='zeros', align_corners=True).view(bs, channels, height, width)  #(B, C, H, W)
+
+    return y_warped
+
+if __name__=="__main__":
+    x=torch.randint(10,[1,3,2,2])/255
+    print(x)
+    disp=torch.zeros([2,5,5])
+    print(resample2d(x,disp))

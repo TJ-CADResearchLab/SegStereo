@@ -16,7 +16,7 @@ def model_loss_train_scale(disp_ests, disp_gt, maxdisp):
     scales=[0,1,2,3,3]
     for disp_est, weight ,scale in zip(disp_ests, weights,scales):
         disp_gt_cur=F.avg_pool2d(disp_gt,(2**scale,2**scale))
-        mask = (disp_gt_cur < maxdisp//2**scale) & (disp_gt_cur > 0)
+        mask = (disp_gt_cur < maxdisp) & (disp_gt_cur > 0)
         all_losses.append(weight * F.smooth_l1_loss(disp_est[mask], disp_gt_cur[mask], size_average=True))
     return sum(all_losses)
     
