@@ -62,12 +62,17 @@ test_dataset = StereoDataset(args.datapath, args.testlist, False)
 TrainImgLoader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=8, drop_last=True)
 TestImgLoader = DataLoader(test_dataset, args.test_batch_size, shuffle=False, num_workers=8, drop_last=False)
 
-# model, optimizer
+# model, optimizer, loss
 model = __models__[args.model](args.maxdisp)
 model = nn.DataParallel(model)
 model.cuda()
 optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
 #optimizer = optim.SGD(model.parameters(), lr = args.lr, momentum=0.9)
+if args.model=="ednet":
+    lossfunction=model_loss_train
+else:
+    lossfunction=model_loss_train
+
 
 # load parameters
 start_epoch = 0
@@ -156,7 +161,7 @@ def train_sample(sample, compute_metrics=False):
     optimizer.zero_grad()
     disp_ests = model(imgL, imgR)
     mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
-    loss = model_loss_train(disp_ests, disp_gt, mask)
+    loss = lossfunction(disp_ests, disp_gt, args.maxdisp)
     scalar_outputs = {"loss": loss}
     image_outputs = {"disp_est": disp_ests, "disp_gt": disp_gt, "imgL": imgL, "imgR": imgR}
     if compute_metrics:

@@ -83,7 +83,7 @@ class MSMNet_cost(nn.Module):
             elif isinstance(m, nn.Linear):
                 m.bias.data.zero_()
 
-    def forward(self, img_left, img_right, training=False):
+    def forward(self, img_left, img_right):
 
         # split left image and right image
 
@@ -172,7 +172,7 @@ class MSMNet_cost(nn.Module):
         res0 = self.res_submodule_0(img_left, img_right, pr0, iconv0)
         pr0 = pr0 + res0
         pr0 = self.relu0(pr0)
-        if training:
+        if self.training:
             return [pr0, pr1, pr2, pr3, pr3_o]
         else:
             return pr0
