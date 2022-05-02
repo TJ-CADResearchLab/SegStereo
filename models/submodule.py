@@ -8,7 +8,6 @@ import torch.nn.functional as F
 import numpy as np
 
 
-
 class BasicConv(nn.Module):
 
     def __init__(self, in_channels, out_channels, deconv=False, is_3d=False, bn=True, relu=True, **kwargs):
@@ -178,46 +177,6 @@ def disparity_regression(x, maxdisp,step=1,keepdim=False):
 
 
 
-def get_cur_disp_range_samples(cur_disp, ndisp, disp_inteval_pixel):
-
-    cur_disp_min = (cur_disp - ndisp / 2 * disp_inteval_pixel)  # (B, H, W)
-    cur_disp_max = (cur_disp + ndisp / 2 * disp_inteval_pixel)
-
-    new_interval = (cur_disp_max - cur_disp_min) / (ndisp - 1)  # (B, H, W)
-
-    disp_range_samples = cur_disp_min.unsqueeze(1) + (torch.arange(0, ndisp, device=cur_disp.device,
-                                                                    dtype=cur_disp.dtype,
-                                                                    requires_grad=False).reshape(1, -1, 1,
-                                                                                                1) * new_interval.unsqueeze(1))
-    return disp_range_samples
-
-
-def build_concat_volume_with_shift(x, y, ndisp ,datum):
-
-    disp_range_samples=get_cur_disp_range_samples(datum,ndisp,disp_inteval_pixel=1)
-
-    assert (x.is_contiguous() == True)
-    bs, channels, height, width = x.size()
-    cost = x.new().resize_(bs, channels * 2, ndisp, height, width).zero_()
-
-    mh, mw = torch.meshgrid([torch.arange(0, height, dtype=x.dtype, device=x.device),
-                             torch.arange(0, width, dtype=x.dtype, device=x.device)])  # (H *W)
-    mh = mh.reshape(1, 1, height, width).repeat(bs, ndisp, 1, 1)
-    mw = mw.reshape(1, 1, height, width).repeat(bs, ndisp, 1, 1)  # (B, D, H, W)
-
-    cur_disp_coords_y = mh
-    cur_disp_coords_x = mw - disp_range_samples
-
-    coords_x = cur_disp_coords_x / ((width - 1.0) / 2.0) - 1.0  # trans to -1 - 1
-    coords_y = cur_disp_coords_y / ((height - 1.0) / 2.0) - 1.0
-    grid = torch.stack([coords_x, coords_y], dim=4)  # (B, D, H, W, 2)
-    cost[:, x.size()[1]:, :, :, :] = F.grid_sample(y, grid.view(bs, ndisp * height, width, 2), mode='bilinear',
-                                                   padding_mode='zeros', align_corners=True).view(bs, channels, ndisp,
-                                                                                                  height, width)
-    tmp = x.unsqueeze(2).repeat(1, 1, ndisp, 1, 1)  # (B, C, D, H, W)
-    cost[:, :x.size()[1], :, :, :] = tmp
-    cost = cost.contiguous()
-    return cost
 
 def build_concat_volume(refimg_fea, targetimg_fea, maxdisp):
     B, C, H, W = refimg_fea.shape
@@ -334,17 +293,6 @@ def build_gwc_volume_v1(refimg_fea, targetimg_fea, maxdisp, num_groups):
     return volume
 
 
-def build_correlation_volume(refimg_fea, targetimg_fea, maxdisp, num_groups):
-    B, C, H, W = refimg_fea.shape
-    volume = refimg_fea.new_ones([B, num_groups, maxdisp, H, W])
-    for i in range(maxdisp):
-        if i > 0:
-            volume[:, :, i, :, i:] = groupwise_correlation(refimg_fea[:, :, :, i:], targetimg_fea[:, :, :, :-i],
-                                                           num_groups)
-        else:
-            volume[:, :, i, :, :] = groupwise_correlation(refimg_fea, targetimg_fea, num_groups)
-    volume = volume.contiguous()
-    return volume
 
 
 class BasicBlock(nn.Module):
@@ -610,6 +558,4 @@ if __name__=="__main__":
     ndisp=4
     datum=torch.randint(3,[1, 2, 4])
     print(datum)
-    res=build_concat_volume_with_shift(x, y, ndisp, datum)
-    print(res) # [1, 6, 4, 2, 4]
 
