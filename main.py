@@ -14,7 +14,7 @@ import numpy as np
 import time
 from tensorboardX import SummaryWriter
 from datasets import __datasets__
-from models import __models__, model_loss_train, model_loss_test
+from models import __models__, model_loss_train, model_loss_test ,model_loss_train_scale
 from utils import *
 from torch.utils.data import DataLoader
 import gc
@@ -69,7 +69,7 @@ model.cuda()
 optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
 #optimizer = optim.SGD(model.parameters(), lr = args.lr, momentum=0.9)
 if args.model=="ednet":
-    lossfunction=model_loss_train
+    lossfunction=model_loss_train_scale
 else:
     lossfunction=model_loss_train
 

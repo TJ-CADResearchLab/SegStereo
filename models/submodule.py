@@ -236,6 +236,9 @@ def build_gwc_volume(refimg_fea, targetimg_fea, maxdisp, num_groups,step=1):
                                                            num_groups)
         else:
             volume[:, :, i, :, :] = groupwise_correlation(refimg_fea, targetimg_fea, num_groups)
+
+    if num_groups==1:
+        volume=torch.squeeze(volume,dim=1)
     volume = volume.contiguous()
     return volume
 

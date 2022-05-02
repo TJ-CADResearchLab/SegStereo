@@ -225,23 +225,24 @@ class origin_agg(nn.Module):
 if __name__ == '__main__':
     import time
 
-    model = MSMNet_cost(second_range=12).cuda()
+    model = MSMNet_cost(second_range=12)
     model.eval()
-    input = torch.randn(1, 3, 384, 1280).cuda()
+    input = torch.randn(1, 3, 384, 1280)
+    out = model(input, input)
     # input2 = torch.randn(1, 3, 384, 1280).cuda()
-    from thop.profile import profile
-
-    flops, params = profile(model, inputs=(input, input))
-    print('Number of Params: %.5f' % (params / 1e6))
-    print('Number of GFLOPs: %.5f' % (flops / 1e9))
-
+    # from thop.profile import profile
+    #
+    # flops, params = profile(model, inputs=(input, input))
     # print('Number of Params: %.5f' % (params / 1e6))
     # print('Number of GFLOPs: %.5f' % (flops / 1e9))
-    total_time = 0
-
-    for i in range(10):
-        start_time = time.time()
-        out = model(input, input)
-        end_time = time.time()
-        total_time += end_time - start_time
-    print('avg time is {:.3f}'.format(total_time / 10))
+    #
+    # # print('Number of Params: %.5f' % (params / 1e6))
+    # # print('Number of GFLOPs: %.5f' % (flops / 1e9))
+    # total_time = 0
+    #
+    # for i in range(10):
+    #     start_time = time.time()
+    #     out = model(input, input)
+    #     end_time = time.time()
+    #     total_time += end_time - start_time
+    # print('avg time is {:.3f}'.format(total_time / 10))

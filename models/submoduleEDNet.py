@@ -232,7 +232,7 @@ class res_submodule_attention(nn.Module):
 
         disp_ = disp / scale  # align the disparity to the proper scale
 
-        left_rec = self.resample(right, disp_)   #   new  resample
+        left_rec = self.resample(right, disp_.squeeze(1))   #   new  resample
         error_map = left - left_rec
 
         query = torch.cat((left, right, error_map, disp_), dim=1)
@@ -274,8 +274,8 @@ def resample2d(y, disp):
     bs, channels, height, width = y.size()
 
 
-    mh, mw = torch.meshgrid([torch.arange(0, height, dtype=x.dtype, device=x.device),
-                                 torch.arange(0, width, dtype=x.dtype, device=x.device)])  # (H *W)
+    mh, mw = torch.meshgrid([torch.arange(0, height, dtype=y.dtype, device=y.device),
+                                 torch.arange(0, width, dtype=y.dtype, device=y.device)])  # (H *W)
 
 
     mh = mh.reshape(1, height, width).repeat(bs,  1, 1)
