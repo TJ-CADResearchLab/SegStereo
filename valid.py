@@ -63,7 +63,7 @@ TrainImgLoader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_wo
 TestImgLoader = DataLoader(test_dataset, args.test_batch_size, shuffle=False, num_workers=8, drop_last=False)
 
 # model, optimizer
-model = __models__[args.model](args.maxdisp)
+model = __models__[args.model](maxdisp=args.maxdisp)
 model = nn.DataParallel(model)
 model.cuda()
 optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
@@ -130,15 +130,15 @@ def test_sample(sample):
     imgR = imgR.cuda()
     disp_gt = disp_gt.cuda()
     mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
-    res = model(imgL, imgR,valid=True)
-    disp_ests,att0,att1,disp_sample=[res[0]],res[1],res[2],res[3]
+    res = model(imgL, imgR)
+    disp_ests=res #disp_ests,att0,att1,disp_sample=[res[0]],res[1],res[2],res[3]
     disp_gts = [disp_gt, disp_gt, disp_gt, disp_gt, disp_gt, disp_gt]
     loss = model_loss_test(disp_ests, disp_gt, mask)
     scalar_outputs = {"loss": loss}
     image_outputs = {"disp_est": disp_ests, "disp_gt": disp_gts, "imgL": imgL, "imgR": imgR}
     image_outputs["errormap"] = [disp_error_image_func.apply(disp_est, disp_gt) for disp_est in disp_ests]
-    image_outputs["attention0"]=[att0]
-    image_outputs["attention1"]=[att1]
+  #  image_outputs["attention0"]=[att0]
+  #  image_outputs["attention1"]=[att1]
     
     scalar_outputs["EPE"] = [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
     scalar_outputs["D1"] = [D1_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]

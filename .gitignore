@@ -6,3 +6,4 @@ datasets/__pycache__/
 utils/__pycache__/
 acv_log/
 ed_log/
+valid_log/
