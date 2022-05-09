@@ -122,7 +122,7 @@ def train():
         # # testing
         avg_test_scalars = AverageMeterDict()
         for batch_idx, sample in enumerate(TestImgLoader):
-      #      if batch_idx==10:break
+#            if batch_idx==10:break
             global_step = len(TestImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
             # do_summary = global_step % args.summary_freq == 0
