@@ -11,7 +11,7 @@ def model_loss_train(disp_ests, disp_gt,maxdisp):
     return sum(all_losses)
 
 def model_loss_train_scale(disp_ests, disp_gt, maxdisp):
-    weights = [0.6, 0.8, 0.8, 1.0,1.0]
+    weights = [1, 0.8, 0.8, 0.6,0.3]
     all_losses = []
     scales=[0,1,2,3,3]
     for disp_est, weight ,scale in zip(disp_ests, weights,scales):
