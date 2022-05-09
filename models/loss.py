@@ -10,14 +10,15 @@ def model_loss_train(disp_ests, imgL,imgR):
         all_losses.append(weight * (0.15*F.smooth_l1_loss(left_rec,imgL, size_average=True)+0.85*SSIM(left_rec,imgL).mean()))
     return sum(all_losses)
 
-def model_loss_train_scale(disp_ests, disp_gt, maxdisp):
-    weights = [1, 0.8, 0.8, 0.6,0.3]
+def model_loss_train_scale(disp_ests, imgL,imgR):
+    weights = [0.32 ,0.16 ,0.08, 0.04 ,0.02 ,0.01, 0.005]
     all_losses = []
-    scales=[0,1,2,3,3]
+    scales=[0,1,2,3,4,5,6]
     for disp_est, weight ,scale in zip(disp_ests, weights,scales):
-        disp_gt_cur=F.avg_pool2d(disp_gt,(2**scale,2**scale))
-        mask = (disp_gt_cur < maxdisp) & (disp_gt_cur > 0)
-        all_losses.append(weight * F.smooth_l1_loss(disp_est[mask], disp_gt_cur[mask], size_average=True))
+        imgR_cur=F.avg_pool2d(imgR,(2**scale,2**scale))
+        imgL_cur = F.avg_pool2d(imgL, (2 ** scale, 2 ** scale))
+        left_rec = resample2d(imgR_cur, disp_est)
+        all_losses.append(weight * (0.15*F.smooth_l1_loss(left_rec,imgL_cur, size_average=True)+0.85*SSIM(left_rec,imgL_cur).mean()))
     return sum(all_losses)
     
 def model_loss_test(disp_ests, disp_gt, mask):

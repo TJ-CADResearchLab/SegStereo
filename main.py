@@ -68,7 +68,9 @@ model = nn.DataParallel(model)
 model.cuda()
 optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
 #optimizer = optim.SGD(model.parameters(), lr = args.lr, momentum=0.9)
-lossfunction=model_loss_train
+
+#lossfunction=model_loss_train
+lossfunction=model_loss_train_scale()
 
 
 # load parameters
