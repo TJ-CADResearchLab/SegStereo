@@ -68,10 +68,7 @@ model = nn.DataParallel(model)
 model.cuda()
 optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
 #optimizer = optim.SGD(model.parameters(), lr = args.lr, momentum=0.9)
-if args.model=="ednet":
-    lossfunction=model_loss_train_scale
-else:
-    lossfunction=model_loss_train
+lossfunction=model_loss_train
 
 
 # load parameters
@@ -109,17 +106,17 @@ def train():
  #               break
             global_step = len(TrainImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
-            do_summary=False
-          #  do_summary = global_step % args.summary_freq == 0
+
+            do_summary = global_step % args.summary_freq == 0
             loss,scalar_outputs= train_sample(sample, compute_metrics=do_summary)
             if do_summary:
                 save_scalars(logger, 'train', scalar_outputs, global_step)
-
-            del scalar_outputs
+                print('current batch EPE = {:.3f}'.format(sum(scalar_outputs["EPE"])/len(scalar_outputs["EPE"])))
             print('Epoch {}/{}, Iter {}/{}, train loss = {:.3f}, time = {:.3f}'.format(epoch_idx, args.epochs,
                                                                                        batch_idx,
                                                                                        len(TrainImgLoader), loss,
                                                                                        time.time() - start_time))
+            del scalar_outputs
         gc.collect()
 
         # # testing
@@ -158,23 +155,24 @@ def train_sample(sample, compute_metrics=False):
     imgL, imgR, disp_gt = sample['left'], sample['right'], sample['disparity']
     imgL = imgL.cuda()
     imgR = imgR.cuda()
-    disp_gt = disp_gt.cuda()
     optimizer.zero_grad()
     disp_ests = model(imgL, imgR)
-    mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
-    loss = lossfunction(disp_ests, disp_gt, args.maxdisp)
+
+    loss = lossfunction(disp_ests, imgL, imgR)
     scalar_outputs = {"loss": loss}
-    image_outputs = {"disp_est": disp_ests, "disp_gt": disp_gt, "imgL": imgL, "imgR": imgR}
+    loss.backward()
+    optimizer.step()
+
     if compute_metrics:
         with torch.no_grad():
-            image_outputs["errormap"] = [disp_error_image_func.apply(disp_est, disp_gt) for disp_est in disp_ests]
+            disp_gt = disp_gt.cuda()
+            mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
             scalar_outputs["EPE"] = [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
-            scalar_outputs["D1"] = [D1_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
+            # scalar_outputs["D1"] = [D1_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
             # scalar_outputs["Thres1"] = [Thres_metric(disp_est, disp_gt, mask, 1.0) for disp_est in disp_ests]
             # scalar_outputs["Thres2"] = [Thres_metric(disp_est, disp_gt, mask, 2.0) for disp_est in disp_ests]
             # scalar_outputs["Thres3"] = [Thres_metric(disp_est, disp_gt, mask, 3.0) for disp_est in disp_ests]
-    loss.backward()
-    optimizer.step()
+
     return tensor2float(loss), tensor2float(scalar_outputs)
 
 
@@ -188,7 +186,7 @@ def test_sample(sample, compute_metrics=True):
     disp_gt = disp_gt.cuda()
     mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
     disp_ests = model(imgL, imgR)
-    disp_gts = [disp_gt, disp_gt, disp_gt, disp_gt, disp_gt, disp_gt]
+    disp_gts = [disp_gt]
     loss = model_loss_test(disp_ests, disp_gt, mask)
     scalar_outputs = {"loss": loss}
     image_outputs = {"disp_est": disp_ests, "disp_gt": disp_gts, "imgL": imgL, "imgR": imgR}

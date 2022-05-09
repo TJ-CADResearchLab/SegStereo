@@ -1,13 +1,15 @@
 import torch.nn.functional as F
 import torch
+from models.submoduleEDNet import resample2d
 
+def model_loss_train(disp_ests, imgL,imgR):
 
-def model_loss_train(disp_ests, disp_gt,maxdisp):
-    mask = (disp_gt < maxdisp) & (disp_gt > 0)
     weights = [0.7, 0.5, 0.7, 1.0]   #[0.5, 0.5, 0.7, 1.0]
+
     all_losses = []
     for disp_est, weight in zip(disp_ests, weights):
-        all_losses.append(weight * F.smooth_l1_loss(disp_est[mask], disp_gt[mask], size_average=True))
+        left_rec = resample2d(imgR, disp_est)
+        all_losses.append(weight * F.smooth_l1_loss(left_rec,imgL, size_average=True))
     return sum(all_losses)
 
 def model_loss_train_scale(disp_ests, disp_gt, maxdisp):
