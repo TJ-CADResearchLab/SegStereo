@@ -15,6 +15,7 @@ import time
 from tensorboardX import SummaryWriter
 from datasets import __datasets__
 from models import __models__, model_loss_train, model_loss_test
+from models.submoduleEDNet import resample2d
 from utils import *
 from torch.utils.data import DataLoader
 import gc
@@ -25,7 +26,7 @@ cudnn.benchmark = True
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 parser = argparse.ArgumentParser(description='Attention Concatenation Volume for Accurate and Efficient Stereo Matching (ACVNet)')
-parser.add_argument('--model', default='attnet', help='select a model structure', choices=__models__.keys())
+parser.add_argument('--model', default='acvnet', help='select a model structure', choices=__models__.keys())
 parser.add_argument('--maxdisp', type=int, default=192, help='maximum disparity')
 
 parser.add_argument('--dataset', default='sceneflow', help='dataset name', choices=__datasets__.keys())
@@ -66,23 +67,12 @@ TestImgLoader = DataLoader(test_dataset, args.test_batch_size, shuffle=False, nu
 model = __models__[args.model](maxdisp=args.maxdisp)
 model = nn.DataParallel(model)
 model.cuda()
-optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
-#optimizer = optim.SGD(model.parameters(), lr = args.lr, momentum=0.9)
+
 
 # load parameters
 start_epoch = 0
-if args.resume:
-    # find all checkpoints file and sort according to epoch id
-    all_saved_ckpts = [fn for fn in os.listdir(args.logdir) if fn.endswith(".ckpt")]
-    all_saved_ckpts = sorted(all_saved_ckpts, key=lambda x: int(x.split('_')[-1].split('.')[0]))
-    # use the latest checkpoint file
-    loadckpt = os.path.join(args.logdir, all_saved_ckpts[-1])
-    print("loading the lastest model in logdir: {}".format(loadckpt))
-    state_dict = torch.load(loadckpt)
-    model.load_state_dict(state_dict['model'])
-    optimizer.load_state_dict(state_dict['optimizer'])
-    start_epoch = state_dict['epoch'] + 1
-elif args.loadckpt!='none':
+
+if args.loadckpt!='none':
     # load the checkpoint file specified by args.loadckpt
     print("loading model {}".format(args.loadckpt))
     state_dict = torch.load(args.loadckpt)
@@ -130,16 +120,16 @@ def test_sample(sample):
     imgR = imgR.cuda()
     disp_gt = disp_gt.cuda()
     mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
-    res = model(imgL, imgR)
-    disp_ests=res #disp_ests,att0,att1,disp_sample=[res[0]],res[1],res[2],res[3]
-    disp_gts = [disp_gt, disp_gt, disp_gt, disp_gt, disp_gt, disp_gt]
+    disp_ests= model(imgL, imgR)
+    left_rec = resample2d(imgR, disp_gt)
+    left_rec=[left_rec]
+    disp_gts = [disp_gt]
     loss = model_loss_test(disp_ests, disp_gt, mask)
     scalar_outputs = {"loss": loss}
-    image_outputs = {"disp_est": disp_ests, "disp_gt": disp_gts, "imgL": imgL, "imgR": imgR}
+
+    image_outputs = {"disp_est": disp_ests, "disp_gt": disp_gts, "imgL": imgL, "imgR": imgR,"left_rec":left_rec}
     image_outputs["errormap"] = [disp_error_image_func.apply(disp_est, disp_gt) for disp_est in disp_ests]
-  #  image_outputs["attention0"]=[att0]
-  #  image_outputs["attention1"]=[att1]
-    
+
     scalar_outputs["EPE"] = [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
     scalar_outputs["D1"] = [D1_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
     scalar_outputs["Thres1"] = [Thres_metric(disp_est, disp_gt, mask, 1.0) for disp_est in disp_ests]
