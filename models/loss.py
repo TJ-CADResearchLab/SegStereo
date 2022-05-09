@@ -3,12 +3,11 @@ import torch
 from models.submoduleEDNet import resample2d
 import torch.nn as nn
 def model_loss_train(disp_ests, imgL,imgR):
-
     weights = [0.7, 0.5, 0.7, 1.0]   #[0.5, 0.5, 0.7, 1.0]
     all_losses = []
     for disp_est, weight in zip(disp_ests, weights):
         left_rec = resample2d(imgR, disp_est)
-        all_losses.append(weight * (0.15*F.smooth_l1_loss(left_rec,imgL, size_average=True)+0.85*SSIM(left_rec,imgL).mean(1, True)))
+        all_losses.append(weight * (0.15*F.smooth_l1_loss(left_rec,imgL, size_average=True)+0.85*SSIM(left_rec,imgL).mean()))
     return sum(all_losses)
 
 def model_loss_train_scale(disp_ests, disp_gt, maxdisp):
