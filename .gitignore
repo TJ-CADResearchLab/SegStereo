@@ -1,10 +1,6 @@
 .idea/
 models/__pycache__/
-att_log/
 data/
 datasets/__pycache__/
 utils/__pycache__/
-acv_log/
-ed_log/
-valid_log/
-acv_self_log/
+log/

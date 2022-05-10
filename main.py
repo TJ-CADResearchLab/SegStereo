@@ -70,7 +70,7 @@ optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
 #optimizer = optim.SGD(model.parameters(), lr = args.lr, momentum=0.9)
 
 #lossfunction=model_loss_train
-lossfunction=model_loss_train_scale()
+lossfunction=model_loss_train_scale
 
 
 # load parameters
@@ -164,7 +164,7 @@ def train_sample(sample, compute_metrics=False):
     scalar_outputs = {"loss": loss}
     loss.backward()
     optimizer.step()
-
+    disp_ests=[disp_ests[0]]
     if compute_metrics:
         with torch.no_grad():
             disp_gt = disp_gt.cuda()

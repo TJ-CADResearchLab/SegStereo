@@ -187,11 +187,14 @@ class DispNetC(nn.Module):
         # pr1 = self.pred_flow1(F.dropout2d(iconv1))
         # pr0 = self.pred_flow0(F.dropout2d(iconv0))
 
-        # if self.training:
-        #     # print("finish forwarding.")
-        #     return pr0, pr1, pr2, pr3, pr4, pr5, pr6
-        # else:
-        #     return pr0
+        pr0=torch.squeeze(pr0,dim=1)
+        pr1=torch.squeeze(pr1,dim=1)
+        pr2=torch.squeeze(pr2,dim=1)
+        pr3=torch.squeeze(pr3,dim=1)
+        pr4=torch.squeeze(pr4,dim=1)
+        pr5=torch.squeeze(pr5,dim=1)
+        pr6=torch.squeeze(pr6,dim=1)
+
 
         disps = [pr0, pr1, pr2, pr3, pr4, pr5, pr6]
 
