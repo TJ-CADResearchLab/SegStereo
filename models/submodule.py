@@ -457,6 +457,29 @@ def disparity_variance_confidence(x, disparity_samples, disparity):
     disp_values = (disparity - disparity_samples) ** 2
     return torch.sum(x * disp_values, 1, keepdim=True)
 
+def resamplexy(y, shift):
+
+    bs,channel, height, width = y.size()
+
+
+    mh, mw = torch.meshgrid([torch.arange(0, height, dtype=y.dtype, device=y.device),
+                                 torch.arange(0, width, dtype=y.dtype, device=y.device)])  # (H *W)
+
+
+    mh = mh.reshape(1, height, width).repeat(bs,  1, 1)
+    mw = mw.reshape(1, height, width).repeat(bs,  1, 1)  # (B, H, W)
+
+
+    grid = torch.stack([mw, mh], dim=3)
+    grid=grid+shift
+    grid[:,0,:,:]=grid[:,0,:,:]/ ((width - 1.0) / 2.0) - 1.0
+    grid[:, 1, :, :] = grid[:, 1, :, :] / ((height - 1.0) / 2.0) - 1.0
+
+
+    y_warped = F.grid_sample(y, grid, mode='bilinear',
+                               padding_mode='zeros', align_corners=True).view(bs,channel, height, width)  #(B, C, H, W)
+
+    return y_warped
 
 class SpatialTransformer(nn.Module):
     def __init__(self):

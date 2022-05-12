@@ -11,9 +11,9 @@ def model_loss_train(disp_ests, imgL,imgR):
     return sum(all_losses)
 
 def model_loss_train_scale(disp_ests, imgL,imgR):
-    weights = [0.32 ,0.16 ,0.08, 0.04 ,0.02 ,0.01, 0.005]
+    weights = [0.7, 0.5, 0.7, 1.0]
     all_losses = []
-    scales=[0,1,2,3,4,5,6]
+    scales=[0,2,1,0]
     for disp_est, weight ,scale in zip(disp_ests, weights,scales):
         imgR_cur=F.avg_pool2d(imgR,(2**scale,2**scale))
         imgL_cur = F.avg_pool2d(imgL, (2 ** scale, 2 ** scale))

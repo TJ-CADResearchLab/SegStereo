@@ -129,7 +129,7 @@ def train():
             start_time = time.time()
             # do_summary = global_step % args.summary_freq == 0
             do_summary = global_step % 1 == 0
-            loss, scalar_outputs, image_outputs = test_sample(sample, compute_metrics=do_summary)
+            loss, scalar_outputs = test_sample(sample, compute_metrics=do_summary)
             if do_summary:
                save_scalars(logger, 'test', scalar_outputs, global_step)
         
@@ -188,18 +188,16 @@ def test_sample(sample, compute_metrics=True):
     disp_gt = disp_gt.cuda()
     mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
     disp_ests = model(imgL, imgR)
-    disp_gts = [disp_gt]
+
     loss = model_loss_test(disp_ests, disp_gt, mask)
     scalar_outputs = {"loss": loss}
-    image_outputs = {"disp_est": disp_ests, "disp_gt": disp_gts, "imgL": imgL, "imgR": imgR}
-    image_outputs["errormap"] = [disp_error_image_func.apply(disp_est, disp_gt) for disp_est in disp_ests]
     scalar_outputs["EPE"] = [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
     scalar_outputs["D1"] = [D1_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
     scalar_outputs["Thres1"] = [Thres_metric(disp_est, disp_gt, mask, 1.0) for disp_est in disp_ests]
     scalar_outputs["Thres2"] = [Thres_metric(disp_est, disp_gt, mask, 2.0) for disp_est in disp_ests]
     scalar_outputs["Thres3"] = [Thres_metric(disp_est, disp_gt, mask, 3.0) for disp_est in disp_ests]
 
-    return tensor2float(loss), tensor2float(scalar_outputs), image_outputs
+    return tensor2float(loss), tensor2float(scalar_outputs)
 
 
 if __name__ == '__main__':
