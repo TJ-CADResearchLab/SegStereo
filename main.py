@@ -15,6 +15,7 @@ import time
 from tensorboardX import SummaryWriter
 from datasets import __datasets__
 from models import __models__, model_loss_train, model_loss_test ,model_loss_train_scale
+from models.submoduleEDNet import resample2d
 from utils import *
 from torch.utils.data import DataLoader
 import gc
@@ -159,8 +160,14 @@ def train_sample(sample, compute_metrics=False):
     imgR = imgR.cuda()
     optimizer.zero_grad()
     disp_ests = model(imgL, imgR)
-
-    loss = lossfunction(disp_ests, imgL, imgR)
+    with torch.no_grad():
+        occ_masks=[]
+        disp_right=model(imgR,imgL)
+        for i in range(len(disp_right)):
+            disp_rec=resample2d(-disp_right[i],disp_ests[i])
+            occ=((disp_rec+disp_ests[i])>0.01*(torch.abs(disp_rec)+torch.abs(disp_ests[i]))+0.5) |( disp_rec==0)  # from occlusion aware
+            occ_masks.append(occ)
+    loss = lossfunction(disp_ests, imgL, imgR,occ_masks)
     scalar_outputs = {"loss": loss}
     loss.backward()
     optimizer.step()

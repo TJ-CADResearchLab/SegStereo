@@ -270,8 +270,13 @@ class SA_Module(nn.Module):
         return attention_value
 
 def resample2d(y, disp):
-
-    bs, channels, height, width = y.size()
+    
+    if len(y.size())==4:
+        bs, channels, height, width = y.size()
+    else:
+        bs,height,width=y.size()
+        y=torch.unsqueeze(y,dim=1)
+        channels=0
 
 
     mh, mw = torch.meshgrid([torch.arange(0, height, dtype=y.dtype, device=y.device),
@@ -290,7 +295,7 @@ def resample2d(y, disp):
     grid = torch.stack([coords_x, coords_y], dim=3) #(B,  H, W, 2)
 
     y_warped = F.grid_sample(y, grid, mode='bilinear',
-                               padding_mode='zeros', align_corners=True).view(bs, channels, height, width)  #(B, C, H, W)
+                               padding_mode='zeros', align_corners=True).view([bs, channels, height, width] if channels!=0 else [bs,height,width])  #(B, C, H, W)
 
     return y_warped
 

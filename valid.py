@@ -126,8 +126,18 @@ def test_sample(sample):
     disp_gts = [disp_gt]
     loss = model_loss_test(disp_ests, disp_gt, mask)
     scalar_outputs = {"loss": loss}
+    occ_masks = []
+    imgL_rev=imgL[:, :, :, torch.arange(imgL.size(3) - 1, -1, -1)]
+    imgR_rev=imgR[:, :, :, torch.arange(imgR.size(3) - 1, -1, -1)]
+    disp_right = model(imgR_rev, imgL_rev)
 
-    image_outputs = {"disp_est": disp_ests, "disp_gt": disp_gts, "imgL": imgL, "imgR": imgR,"left_rec":left_rec}
+    disp_right=[i[:,:,torch.arange(i.size(2)-1,-1,-1)] for i in disp_right]
+    for i in range(len(disp_right)):
+        disp_rec = resample2d(-disp_right[i], disp_ests[i])
+        occ = ((disp_rec + disp_ests[i]) > 0.01 * (
+                    torch.abs(disp_rec) + torch.abs(disp_ests[i])) + 0.5) |( disp_rec == 0)  # from occlusion aware
+        occ_masks.append(occ*0.99)
+    image_outputs = {"disp_est": disp_ests, "disp_gt": disp_gts, "imgL": imgL, "imgR": imgR,"left_rec":left_rec,"occ_mask":occ_masks,"disp_right":disp_right}
     image_outputs["errormap"] = [disp_error_image_func.apply(disp_est, disp_gt) for disp_est in disp_ests]
 
     scalar_outputs["EPE"] = [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
