@@ -1,7 +1,7 @@
-model=dispnet
+model=acvsgnet
 datapath=data
-batch_size=24
-logdir=log/disp_self_log
+batch_size=2
+logdir=log/acvsg_self_log
 loadckpt=none
 lr=0.0001
 test_batch_size=1	
