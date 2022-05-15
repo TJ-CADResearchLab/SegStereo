@@ -125,7 +125,7 @@ def train():
         # # testing
         avg_test_scalars = AverageMeterDict()
         for batch_idx, sample in enumerate(TestImgLoader):
-     #       if batch_idx==10:break
+        #    if batch_idx==10:break
             global_step = len(TestImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
             # do_summary = global_step % args.summary_freq == 0
@@ -162,11 +162,15 @@ def train_sample(sample, compute_metrics=False):
     disp_ests = model(imgL, imgR)
     with torch.no_grad():
         occ_masks=[]
-        disp_right=model(imgR,imgL)
+        imgL_rev=imgL[:, :, :, torch.arange(imgL.size(3) - 1, -1, -1)]
+        imgR_rev=imgR[:, :, :, torch.arange(imgR.size(3) - 1, -1, -1)]
+        disp_right = model(imgR_rev, imgL_rev)
+        disp_right=[i[:,:,torch.arange(i.size(2)-1,-1,-1)] for i in disp_right]
         for i in range(len(disp_right)):
             disp_rec=resample2d(-disp_right[i],disp_ests[i])
             occ=((disp_rec+disp_ests[i])>0.01*(torch.abs(disp_rec)+torch.abs(disp_ests[i]))+0.5) |( disp_rec==0)  # from occlusion aware
-            occ_masks.append(occ)
+            occ=~occ
+            occ_masks.append(occ.unsqueeze(1).repeat(1,3,1,1))
     loss = lossfunction(disp_ests, imgL, imgR,occ_masks)
     scalar_outputs = {"loss": loss}
     loss.backward()

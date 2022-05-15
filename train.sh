@@ -1,7 +1,7 @@
 model=acvsgnet
 datapath=data
 batch_size=2
-logdir=log/acvsg_self_log
+logdir=log/acvsg_self_occ_log
 loadckpt=none
 lr=0.0001
 test_batch_size=1	
