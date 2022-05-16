@@ -111,7 +111,7 @@ def train():
         # training
         for batch_idx, sample in enumerate(TrainImgLoader):
 
-            #if batch_idx == 20: break
+          #  if batch_idx == 20: break
             global_step = len(TrainImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
 
@@ -135,7 +135,7 @@ def train():
         # # testing
         avg_test_scalars = AverageMeterDict()
         for batch_idx, sample in enumerate(TestImgLoader):
-            #if batch_idx==10:break
+          #  if batch_idx==10:break
             global_step = len(TestImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
             # do_summary = global_step % args.summary_freq == 0
@@ -196,9 +196,9 @@ def train_sample(sample, compute_metrics=False):
     scalar_outputs = {"loss": loss}
     loss.backward()
     optimizer.step()
-    disp_ests = [disp_ests[0]]
     if compute_metrics:
         with torch.no_grad():
+            disp_ests=[disp_ests[-1]]
             disp_gt = disp_gt.cuda()
             mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
             scalar_outputs["EPE"] = [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
@@ -273,7 +273,7 @@ def test_sample(sample, compute_metrics=True):
     imgR = imgR.cuda()
     disp_gt = disp_gt.cuda()
     mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
-    disp_ests = model(imgL, imgR)
+    disp_ests = model(imgL, imgR,refine_mode=args.refine_mode)
 
     loss = model_loss_test(disp_ests, disp_gt, mask,args.refine_mode)
     scalar_outputs = {"loss": loss}

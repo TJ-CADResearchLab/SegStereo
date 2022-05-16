@@ -136,7 +136,7 @@ class refine(nn.Module):
         sample,weight=sample.split([2*self.simple_nums,self.simple_nums],dim=1)     # sample [b,node*2,h,w]  weight [b,node,h,w]
         sample = sample.view(sample.size()[0], sample.size()[1] // 2, 2, sample.size()[2], sample.size()[3])
         sample = sample.permute(0, 1, 3, 4, 2)  # sample [b,node,h,w,2]
-        disp_ref = torch.zeros([sample.size()[0], sample.size()[1], sample.size()[2], sample.size()[3]])
+        disp_ref = torch.zeros([sample.size()[0], sample.size()[1], sample.size()[2], sample.size()[3]],device=sample.device)
         for i in range(sample.size()[1]):
             disp_ref[:, i, :, :] = resamplexy(disp, sample[:, i, :, :, :]).squeeze(1)
         if sample.size()[1] == 1:
@@ -288,15 +288,15 @@ class ACVSGNet(nn.Module):
                 segfea1 = self.seghead1(features_left['teacher_feature'][1])  # [b,32,1/2h,1/2w]
                 segfea2 = self.seghead2(features_left['teacher_feature'][2])  # [b,16,h,w]
 
-                error0 = disparity_variance(pred0_pos, self.maxdisp // 4, pred0)  # get the variance
+                error0 = disparity_variance(pred0_pos, self.maxdisp // 4, pred0.unsqueeze(1))  # get the variance
                 error0 = error0.sqrt().detach()
                 pred0_ref = self.refine0(segfea0, error0, pred0)
 
-                error1 = disparity_variance(pred1_pos, self.maxdisp // 2, pred1)  # get the variance
+                error1 = disparity_variance(pred1_pos, self.maxdisp // 2, pred1.unsqueeze(1))  # get the variance
                 error1 = error1.sqrt().detach()
                 pred1_ref = self.refine1(segfea1, error1, pred1)
 
-                error2 = disparity_variance(pred2_pos, self.maxdisp, pred2)  # get the variance
+                error2 = disparity_variance(pred2_pos, self.maxdisp, pred2.unsqueeze(1))  # get the variance
                 error2 = error2.sqrt().detach()
                 pred2_ref = self.refine2(segfea2, error2, pred2)
 
@@ -313,7 +313,7 @@ class ACVSGNet(nn.Module):
 
             if refine_mode:
                 segfea2 = self.seghead2(features_left['teacher_feature'][2])  # [b,16,h,w]
-                error2 = disparity_variance(pred2_pos, self.maxdisp, pred2)  # get the variance
+                error2 = disparity_variance(pred2_pos, self.maxdisp, pred2.unsqueeze(1))  # get the variance
                 error2 = error2.sqrt().detach()
                 pred2_ref = self.refine2(segfea2, error2, pred2)
 
