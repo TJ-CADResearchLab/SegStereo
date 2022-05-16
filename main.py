@@ -49,6 +49,7 @@ parser.add_argument('--seed', type=int, default=1, metavar='S', help='random see
 parser.add_argument('--summary_freq', type=int, default=20, help='the frequency of saving summary')
 parser.add_argument('--save_freq', type=int, default=1, help='the frequency of saving checkpoint')
 parser.add_argument('--train_seg', action="store_true", help='only train seg head')
+parser.add_argument('--refine_mode', action="store_true", help='use refine')
 # parse arguments, set seeds
 args = parser.parse_args()
 torch.manual_seed(args.seed)
@@ -98,7 +99,7 @@ elif args.loadckpt != 'none':
     print("loading model {}".format(args.loadckpt))
     state_dict = torch.load(args.loadckpt)
     model_dict = model.state_dict()
-    pre_dict = {k: v for k, v in state_dict['model'].items() if k in model_dict and "module.refine" not in k}
+    pre_dict = {k: v for k, v in state_dict['model'].items() if k in model_dict}
     model_dict.update(pre_dict)
     model.load_state_dict(model_dict)
 print("start at epoch {}".format(start_epoch))
@@ -119,9 +120,9 @@ def train():
             else:
                 do_summary = global_step % args.summary_freq == 0
                 loss, scalar_outputs = train_sample(sample, compute_metrics=do_summary)
-                if do_summary and not args.train_seg:
+                if do_summary :
                     save_scalars(logger, 'train', scalar_outputs, global_step)
-                    print('current batch EPE = {:.3f}'.format(sum(scalar_outputs["EPE"]) / len(scalar_outputs["EPE"])))
+                    print('current batch EPE =',scalar_outputs["EPE"])
 
                 del scalar_outputs
 
@@ -149,11 +150,10 @@ def train():
 
                 avg_test_scalars.update(scalar_outputs)
 
-                print('Epoch {}/{}, Iter {}/{}, test EPE = {:.3f}, time = {:3f}'.format(epoch_idx, args.epochs,
+                print('Epoch {}/{}, Iter {}/{}, test EPE = {}, time = {:3f}'.format(epoch_idx, args.epochs,
                                                                                         batch_idx,
                                                                                         len(TestImgLoader),
-                                                                                        sum(scalar_outputs["EPE"]) / len(
-                                                                                            scalar_outputs["EPE"]),
+                                                                                        scalar_outputs["EPE"],
                                                                                         time.time() - start_time))
         avg_test_scalars = avg_test_scalars.mean()
         save_scalars(logger, 'fulltest', avg_test_scalars, len(TrainImgLoader) * (epoch_idx + 1))
@@ -168,7 +168,7 @@ def train():
                                                                                           avg_test_scalars["loss"]))
             else:
                 torch.save(checkpoint_data, "{}/checkpoint_{:0>3}_epe_{:.3f}.ckpt".format(args.logdir, epoch_idx,
-                                                                                          avg_test_scalars["EPE"][0]))
+                                                                                          avg_test_scalars["EPE"][-1]))
         gc.collect()
 
 
@@ -179,7 +179,7 @@ def train_sample(sample, compute_metrics=False):
     imgL = imgL.cuda()
     imgR = imgR.cuda()
     optimizer.zero_grad()
-    disp_ests = model(imgL, imgR)
+    disp_ests = model(imgL, imgR,refine_mode=args.refine_mode)
     with torch.no_grad():  # compute occ mask
         occ_masks = []
         imgL_rev = imgL[:, :, :, torch.arange(imgL.size(3) - 1, -1, -1)]
@@ -192,7 +192,7 @@ def train_sample(sample, compute_metrics=False):
                         disp_rec == 0)  # from occlusion aware
             occ = ~occ
             occ_masks.append(occ.unsqueeze(1).repeat(1, 3, 1, 1))
-    loss = lossfunction(disp_ests, imgL, imgR, occ_masks)
+    loss = lossfunction(disp_ests, imgL, imgR, occ_masks,refine_mode=args.refine_mode)
     scalar_outputs = {"loss": loss}
     loss.backward()
     optimizer.step()
@@ -275,7 +275,7 @@ def test_sample(sample, compute_metrics=True):
     mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
     disp_ests = model(imgL, imgR)
 
-    loss = model_loss_test(disp_ests, disp_gt, mask)
+    loss = model_loss_test(disp_ests, disp_gt, mask,args.refine_mode)
     scalar_outputs = {"loss": loss}
     scalar_outputs["EPE"] = [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
     scalar_outputs["D1"] = [D1_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
