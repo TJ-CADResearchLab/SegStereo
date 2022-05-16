@@ -68,14 +68,14 @@ TestImgLoader = DataLoader(test_dataset, args.test_batch_size, shuffle=False, nu
 
 # model, optimizer, loss
 if args.train_seg:
-    model = __models__[args.model](maxdisp=args.maxdisp)
-else:
     model = __models__[args.model](maxdisp=args.maxdisp,train_seg=True)
+else:
+    model = __models__[args.model](maxdisp=args.maxdisp)
 model = nn.DataParallel(model)
 model.cuda()
+
 optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
 # optimizer = optim.SGD(model.parameters(), lr = args.lr, momentum=0.9)
-
 # lossfunction=model_loss_train
 lossfunction = model_loss_train_scale
 if args.train_seg:
@@ -103,7 +103,6 @@ elif args.loadckpt != 'none':
     model.load_state_dict(model_dict)
 print("start at epoch {}".format(start_epoch))
 
-
 def train():
     for epoch_idx in range(start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch_idx, args.lr, args.lrepochs)
@@ -111,8 +110,7 @@ def train():
         # training
         for batch_idx, sample in enumerate(TrainImgLoader):
 
-            #      if batch_idx == 20:
-            #         break
+            #if batch_idx == 20: break
             global_step = len(TrainImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
 
@@ -136,7 +134,7 @@ def train():
         # # testing
         avg_test_scalars = AverageMeterDict()
         for batch_idx, sample in enumerate(TestImgLoader):
-            #    if batch_idx==10:break
+            #if batch_idx==10:break
             global_step = len(TestImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
             # do_summary = global_step % args.summary_freq == 0

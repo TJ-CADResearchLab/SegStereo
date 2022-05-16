@@ -222,11 +222,10 @@ class ACVSGNet(nn.Module):
             with torch.no_grad():
                 features_left = self.feature_extraction(left, return_feature=True)
                 features_right = self.feature_extraction(right, return_feature=True)
-
             segfea_left0 = self.seghead0(features_left['teacher_feature'][0])  # [b,64,1/4h,1/4w]
             segfea_left1 = self.seghead1(features_left['teacher_feature'][1])  # [b,32,1/2h,1/2w]
             segfea_left2 = self.seghead2(features_left['teacher_feature'][2])  # [b,16,h,w]
-
+            
             segfea_right0 = self.seghead0(features_right['teacher_feature'][0])  # [b,64,1/4h,1/4w]
             segfea_right1 = self.seghead1(features_right['teacher_feature'][1])  # [b,32,1/2h,1/2w]
             segfea_right2 = self.seghead2(features_right['teacher_feature'][2])  # [b,16,h,w]

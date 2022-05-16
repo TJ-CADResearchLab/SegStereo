@@ -1,6 +1,6 @@
 model=acvsgnet
 datapath=data
-batch_size=2
+batch_size=8
 logdir=log/acvsg_self_occ_refine_log
 loadckpt=log/acvsg_self_occ_log/checkpoint_004_epe_5.541.ckpt
 lr=0.0001
