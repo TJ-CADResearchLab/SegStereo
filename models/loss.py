@@ -84,7 +84,10 @@ class ContrastiveCorrelationLoss(nn.Module):
         return torch.einsum("nchw,ncij->nhwij", a, b)
 
     def sample(self,t: torch.Tensor, coords: torch.Tensor):
-        return F.grid_sample(t, coords.permute(0, 2, 1, 3), padding_mode='border', align_corners=True)
+        if len(t.size())==3:
+            return F.grid_sample(t.unsqueeze(1), coords.permute(0, 2, 1, 3), padding_mode='border', align_corners=True)
+        else:
+            return F.grid_sample(t, coords.permute(0, 2, 1, 3), padding_mode='border', align_corners=True)
 
     def super_perm(self,size: int, device: torch.device):
         perm = torch.randperm(size, device=device, dtype=torch.long)

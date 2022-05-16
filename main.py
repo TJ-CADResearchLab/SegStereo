@@ -98,7 +98,7 @@ elif args.loadckpt != 'none':
     print("loading model {}".format(args.loadckpt))
     state_dict = torch.load(args.loadckpt)
     model_dict = model.state_dict()
-    pre_dict = {k: v for k, v in state_dict['model'].items() if k in model_dict}
+    pre_dict = {k: v for k, v in state_dict['model'].items() if k in model_dict and "module.refine" not in k}
     model_dict.update(pre_dict)
     model.load_state_dict(model_dict)
 print("start at epoch {}".format(start_epoch))
@@ -117,7 +117,7 @@ def train():
             start_time = time.time()
 
             if args.train_seg:
-                loss = train_seg(sample, compute_metrics=do_summary)
+                loss = train_seg(sample)
             else:
                 do_summary = global_step % args.summary_freq == 0
                 loss, scalar_outputs = train_sample(sample, compute_metrics=do_summary)
