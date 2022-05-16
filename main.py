@@ -218,19 +218,21 @@ def train_seg(sample, compute_metrics=False):
     imgL = imgL.cuda()
     imgR = imgR.cuda()
     optimizer.zero_grad()
-    fea, fea_pos,code,code_pos = model(imgL, imgR)
+    fea, fea_pos,code,code_pos = model(imgL, imgR,train_seg=True)
 
-    (
-        pos_intra_loss, pos_intra_cd,
-        pos_inter_loss, pos_inter_cd,
-        neg_inter_loss, neg_inter_cd,
-    ) = contrastive_corr_loss_fn(fea, fea_pos,None,None, code,code_pos)
-    neg_inter_loss = neg_inter_loss.mean()
-    pos_intra_loss = pos_intra_loss.mean()
-    pos_inter_loss = pos_inter_loss.mean()
-    loss = (0.25 * pos_inter_loss +
-             0.67 * pos_intra_loss +
-             0.63 * neg_inter_loss) * 1.0
+    loss=0
+    for i in range(3):
+        (
+            pos_intra_loss, pos_intra_cd,
+            pos_inter_loss, pos_inter_cd,
+            neg_inter_loss, neg_inter_cd,
+        ) = contrastive_corr_loss_fn(fea[i], fea_pos[i],None,None, code[i],code_pos[i])
+        neg_inter_loss = neg_inter_loss.mean()
+        pos_intra_loss = pos_intra_loss.mean()
+        pos_inter_loss = pos_inter_loss.mean()
+        loss += (0.25 * pos_inter_loss +
+                 0.67 * pos_intra_loss +
+                 0.63 * neg_inter_loss) * 1.0
 
     loss.backward()
     optimizer.step()
@@ -244,19 +246,20 @@ def test_seg(sample, compute_metrics=False):
     imgL = imgL.cuda()
     imgR = imgR.cuda()
 
-    fea, fea_pos,code,code_pos = model(imgL, imgR)
-
-    (
-        pos_intra_loss, pos_intra_cd,
-        pos_inter_loss, pos_inter_cd,
-        neg_inter_loss, neg_inter_cd,
-    ) = contrastive_corr_loss_fn(fea, fea_pos,None,None, code,code_pos)
-    neg_inter_loss = neg_inter_loss.mean()
-    pos_intra_loss = pos_intra_loss.mean()
-    pos_inter_loss = pos_inter_loss.mean()
-    loss = (0.25 * pos_inter_loss +
-             0.67 * pos_intra_loss +
-             0.63 * neg_inter_loss) * 1.0
+    fea, fea_pos,code,code_pos = model(imgL, imgR,train_seg=True)
+    loss=0
+    for i in range(3):
+        (
+            pos_intra_loss, pos_intra_cd,
+            pos_inter_loss, pos_inter_cd,
+            neg_inter_loss, neg_inter_cd,
+        ) = contrastive_corr_loss_fn(fea[i], fea_pos[i],None,None, code[i],code_pos[i])
+        neg_inter_loss = neg_inter_loss.mean()
+        pos_intra_loss = pos_intra_loss.mean()
+        pos_inter_loss = pos_inter_loss.mean()
+        loss += (0.25 * pos_inter_loss +
+                 0.67 * pos_intra_loss +
+                 0.63 * neg_inter_loss) * 1.0
     scalar_outputs = {"loss": loss}
 
 
