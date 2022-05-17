@@ -126,7 +126,7 @@ def train():
                 loss, scalar_outputs = train_sample(sample, compute_metrics=do_summary)
                 if do_summary:
                     save_scalars(logger, 'train', scalar_outputs, global_step)
-                    print('current batch EPE =', scalar_outputs["EPE"])
+                    print('current batch information ', scalar_outputs)
                 del scalar_outputs
 
             print('Epoch {}/{}, Iter {}/{}, train loss = {:.3f}, time = {:.3f}'.format(epoch_idx, args.epochs,
@@ -286,7 +286,10 @@ def compute_occmask(model, imgL, imgR, disp_ests):
     occ_masks = []
     imgL_rev = imgL[:, :, :, torch.arange(imgL.size(3) - 1, -1, -1)]
     imgR_rev = imgR[:, :, :, torch.arange(imgR.size(3) - 1, -1, -1)]
-    disp_right = model(imgR_rev, imgL_rev, refine_mode=args.refine_mode)
+    if args.refine_mode:
+        disp_right,_ = model(imgR_rev, imgL_rev, refine_mode=True)
+    else:
+        disp_right=model(imgR_rev, imgL_rev, refine_mode=False)
     disp_right = [i[:, :, torch.arange(i.size(2) - 1, -1, -1)] for i in disp_right]
     for i in range(len(disp_right)):
         disp_rec = resample2d(-disp_right[i], disp_ests[i])
