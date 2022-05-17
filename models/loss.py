@@ -12,13 +12,13 @@ def model_loss_train_self(disp_ests, imgL,imgR,refine_mode,occ_masks):
         scales=[0,2,1,0]
     all_losses = []
     for disp_est, weight ,scale,occ_mask in zip(disp_ests, weights,scales,occ_masks):
-        imgR_cur=F.avg_pool2d(imgR,(2**scale,2**scale))
-        imgL_cur = F.avg_pool2d(imgL, (2 ** scale, 2 ** scale))
+        imgR_cur=F.interpolate(imgR,scale_factor=1/2**scale)
+        imgL_cur = F.interpolate(imgL,scale_factor=1/2**scale)
         left_rec = resample2d(imgR_cur, disp_est)
         all_losses.append(weight * (0.15*F.smooth_l1_loss(left_rec[occ_mask],imgL_cur[occ_mask], size_average=True)+0.85*SSIM(left_rec,imgL_cur)[occ_mask].mean()))
     return sum(all_losses)
 
-def model_loss_train(disp_ests,mask,refine_mode,disp_gts):
+def model_loss_train(disp_ests,maxdisp,refine_mode,disp_gt):
     if refine_mode:
         weights = [0.7, 0.5, 0.7, 1.0,0.5,0.7,1.0]
         scales=[0,2,1,0,2,1,0]
@@ -27,8 +27,10 @@ def model_loss_train(disp_ests,mask,refine_mode,disp_gts):
         scales=[0,2,1,0]
     all_losses = []
     for disp_est, weight ,scale in zip(disp_ests, weights,scales):
-        disp_gt=F.avg_pool2d(disp_gts,(2**scale,2**scale))
-        all_losses.append(weight  * F.smooth_l1_loss(disp_est[mask], disp_gt[mask], size_average=True))
+        gt_scale=F.interpolate(disp_gt.unsqueeze(1),scale_factor=1/2**scale)/2**scale
+        gt_scale=torch.squeeze(gt_scale,dim=1)
+        mask=(gt_scale<(maxdisp)/2**scale)&(gt_scale>0)
+        all_losses.append(weight  * F.smooth_l1_loss(disp_est[mask], gt_scale[mask], size_average=True))
     return sum(all_losses)
 
 def model_loss_test(disp_ests, disp_gt, mask,refine_mode):
