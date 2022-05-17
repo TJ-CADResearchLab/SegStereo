@@ -171,7 +171,11 @@ def train():
                                                                                               avg_test_scalars[
                                                                                                   "loss"]))
             else:
-                torch.save(checkpoint_data, "{}/checkpoint_{:0>3}_epe_{:.3f}.ckpt".format(args.logdir, epoch_idx,
+                if args.refine_mode:
+                    torch.save(checkpoint_data, "{}/checkpoint_{:0>3}_epe_{:.3f}_{:.3f}.ckpt".format(args.logdir, epoch_idx,
+                                                                                          avg_test_scalars["EPE"][-2],avg_test_scalars["EPE"][-1]))
+                else:
+                    torch.save(checkpoint_data, "{}/checkpoint_{:0>3}_epe_{:.3f}.ckpt".format(args.logdir, epoch_idx,
                                                                                           avg_test_scalars["EPE"][-1]))
         gc.collect()
 
