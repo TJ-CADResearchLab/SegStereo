@@ -14,7 +14,7 @@ import numpy as np
 import time
 from tensorboardX import SummaryWriter
 from datasets import __datasets__
-from models import __models__, model_loss_train, model_loss_test, model_loss_train_scale,ContrastiveCorrelationLoss
+from models import __models__, model_loss_train, model_loss_test, model_loss_train_self, ContrastiveCorrelationLoss
 from models.submoduleEDNet import resample2d
 from utils import *
 from torch.utils.data import DataLoader
@@ -48,8 +48,9 @@ parser.add_argument('--resume', action='store_true', help='continue training the
 parser.add_argument('--seed', type=int, default=1, metavar='S', help='random seed (default: 1)')
 parser.add_argument('--summary_freq', type=int, default=20, help='the frequency of saving summary')
 parser.add_argument('--save_freq', type=int, default=1, help='the frequency of saving checkpoint')
-parser.add_argument('--train_seg', action="store_true", help='only train seg head')
+parser.add_argument('--only_train_seg', action="store_true", help='only train seg head')
 parser.add_argument('--refine_mode', action="store_true", help='use refine')
+parser.add_argument('--self_supervised', action="store_true", help="use self supervised")
 # parse arguments, set seeds
 args = parser.parse_args()
 torch.manual_seed(args.seed)
@@ -68,8 +69,8 @@ TrainImgLoader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_wo
 TestImgLoader = DataLoader(test_dataset, args.test_batch_size, shuffle=False, num_workers=8, drop_last=False)
 
 # model, optimizer, loss
-if args.train_seg:
-    model = __models__[args.model](maxdisp=args.maxdisp,train_seg=True)
+if args.only_train_seg:
+    model = __models__[args.model](maxdisp=args.maxdisp, only_train_seg=True)
 else:
     model = __models__[args.model](maxdisp=args.maxdisp)
 model = nn.DataParallel(model)
@@ -77,10 +78,14 @@ model.cuda()
 
 optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
 # optimizer = optim.SGD(model.parameters(), lr = args.lr, momentum=0.9)
-# lossfunction=model_loss_train
-lossfunction = model_loss_train_scale
-if args.train_seg:
-    contrastive_corr_loss_fn=ContrastiveCorrelationLoss() 
+
+if args.self_supervised:
+    lossfunction = model_loss_train_self
+else:
+    lossfunction = model_loss_train
+
+if args.only_train_seg or args.refine_mode:
+    contrastive_corr_loss_fn = ContrastiveCorrelationLoss()
 # load parameters
 start_epoch = 0
 if args.resume:
@@ -104,26 +109,24 @@ elif args.loadckpt != 'none':
     model.load_state_dict(model_dict)
 print("start at epoch {}".format(start_epoch))
 
+
 def train():
     for epoch_idx in range(start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch_idx, args.lr, args.lrepochs)
 
         # training
         for batch_idx, sample in enumerate(TrainImgLoader):
-
-          #  if batch_idx == 20: break
+            #  if batch_idx == 20: break
             global_step = len(TrainImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
-
-            if args.train_seg:
+            if args.only_train_seg:
                 loss = train_seg(sample)
             else:
                 do_summary = global_step % args.summary_freq == 0
                 loss, scalar_outputs = train_sample(sample, compute_metrics=do_summary)
-                if do_summary :
+                if do_summary:
                     save_scalars(logger, 'train', scalar_outputs, global_step)
-                    print('current batch EPE =',scalar_outputs["EPE"])
-
+                    print('current batch EPE =', scalar_outputs["EPE"])
                 del scalar_outputs
 
             print('Epoch {}/{}, Iter {}/{}, train loss = {:.3f}, time = {:.3f}'.format(epoch_idx, args.epochs,
@@ -135,26 +138,26 @@ def train():
         # # testing
         avg_test_scalars = AverageMeterDict()
         for batch_idx, sample in enumerate(TestImgLoader):
-          #  if batch_idx==10:break
+            #  if batch_idx==10:break
             global_step = len(TestImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
             # do_summary = global_step % args.summary_freq == 0
-            if args.train_seg:
-                loss,scalar_outputs=test_seg(sample)
+            if args.only_train_seg:
+                loss, scalar_outputs = test_seg(sample)
                 avg_test_scalars.update(scalar_outputs)
             else:
                 do_summary = global_step % 1 == 0
-                loss, scalar_outputs = test_sample(sample, compute_metrics=do_summary)
+                loss, scalar_outputs = test_sample(sample)
                 if do_summary:
                     save_scalars(logger, 'test', scalar_outputs, global_step)
 
                 avg_test_scalars.update(scalar_outputs)
 
                 print('Epoch {}/{}, Iter {}/{}, test EPE = {}, time = {:3f}'.format(epoch_idx, args.epochs,
-                                                                                        batch_idx,
-                                                                                        len(TestImgLoader),
-                                                                                        scalar_outputs["EPE"],
-                                                                                        time.time() - start_time))
+                                                                                    batch_idx,
+                                                                                    len(TestImgLoader),
+                                                                                    scalar_outputs["EPE"],
+                                                                                    time.time() - start_time))
         avg_test_scalars = avg_test_scalars.mean()
         save_scalars(logger, 'fulltest', avg_test_scalars, len(TrainImgLoader) * (epoch_idx + 1))
         print("avg_test_scalars", avg_test_scalars)
@@ -163,9 +166,10 @@ def train():
         if (epoch_idx + 1) % args.save_freq == 0:
             checkpoint_data = {'epoch': epoch_idx, 'model': model.state_dict(), 'optimizer': optimizer.state_dict()}
             # id_epoch = (epoch_idx + 1) % 100
-            if args.train_seg:
-                torch.save(checkpoint_data, "{}/checkpoint_{:0>3}_testloss_{:.3f}.ckpt".format(args.logdir, epoch_idx,
-                                                                                          avg_test_scalars["loss"]))
+            if args.only_train_seg:
+                torch.save(checkpoint_data, "{}/checkpoint_{:0>3}_segloss_{:.3f}.ckpt".format(args.logdir, epoch_idx,
+                                                                                              avg_test_scalars[
+                                                                                                  "loss"]))
             else:
                 torch.save(checkpoint_data, "{}/checkpoint_{:0>3}_epe_{:.3f}.ckpt".format(args.logdir, epoch_idx,
                                                                                           avg_test_scalars["EPE"][-1]))
@@ -178,53 +182,66 @@ def train_sample(sample, compute_metrics=False):
     imgL, imgR, disp_gt = sample['left'], sample['right'], sample['disparity']
     imgL = imgL.cuda()
     imgR = imgR.cuda()
+    disp_gt = disp_gt.cuda()
     optimizer.zero_grad()
-    disp_ests = model(imgL, imgR,refine_mode=args.refine_mode)
-    with torch.no_grad():  # compute occ mask
-        occ_masks = []
-        imgL_rev = imgL[:, :, :, torch.arange(imgL.size(3) - 1, -1, -1)]
-        imgR_rev = imgR[:, :, :, torch.arange(imgR.size(3) - 1, -1, -1)]
-        disp_right = model(imgR_rev, imgL_rev)
-        disp_right = [i[:, :, torch.arange(i.size(2) - 1, -1, -1)] for i in disp_right]
-        for i in range(len(disp_right)):
-            disp_rec = resample2d(-disp_right[i], disp_ests[i])
-            occ = ((disp_rec + disp_ests[i]) > 0.01 * (torch.abs(disp_rec) + torch.abs(disp_ests[i])) + 0.5) | (
-                        disp_rec == 0)  # from occlusion aware
-            occ = ~occ
-            occ_masks.append(occ.unsqueeze(1).repeat(1, 3, 1, 1))
-    loss = lossfunction(disp_ests, imgL, imgR, occ_masks,refine_mode=args.refine_mode)
+    loss = 0
+    if args.refine_mode:
+        disp_ests, seg_res = model(imgL, imgR, refine_mode=True)
+        fea, fea_pos, code, code_pos = seg_res
+        seg_loss = 0
+        for i in range(3):
+            (
+                pos_intra_loss, pos_intra_cd,
+                pos_inter_loss, pos_inter_cd,
+                neg_inter_loss, neg_inter_cd,
+            ) = contrastive_corr_loss_fn(fea[i], fea_pos[i], None, None, code[i], code_pos[i])
+            neg_inter_loss = neg_inter_loss.mean()
+            pos_intra_loss = pos_intra_loss.mean()
+            pos_inter_loss = pos_inter_loss.mean()
+            seg_loss += (0.25 * pos_inter_loss +
+                         0.67 * pos_intra_loss +
+                         0.63 * neg_inter_loss) * 1.0
+        loss += seg_loss
+    else:
+        disp_ests = model(imgL, imgR, refine_mode=False)
+    if args.self_supervised:
+        occmask = compute_occmask(model, imgL, imgR, disp_ests)
+        loss += lossfunction(disp_ests, imgL, imgR, refine_mode=args.refine_mode, occ_masks=occmask)
+    else:
+        mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
+        loss += lossfunction(disp_ests, mask, refine_mode=args.refine_mode, disp_gts=disp_gt)
     scalar_outputs = {"loss": loss}
     loss.backward()
     optimizer.step()
     if compute_metrics:
         with torch.no_grad():
-            disp_ests=[disp_ests[-1]]
-            disp_gt = disp_gt.cuda()
+            if args.refine_mode:
+                disp_ests = [disp_ests[-4], disp_ests[-1]]  # origin pixels
+                scalar_outputs['seg_loss']=seg_loss
+                scalar_outputs['disp_loss']=loss-seg_loss
+            else:
+                disp_ests = [disp_ests[-1]]
+                scalar_outputs['disp_loss']=loss
             mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
             scalar_outputs["EPE"] = [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
-            # scalar_outputs["D1"] = [D1_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
-            # scalar_outputs["Thres1"] = [Thres_metric(disp_est, disp_gt, mask, 1.0) for disp_est in disp_ests]
-            # scalar_outputs["Thres2"] = [Thres_metric(disp_est, disp_gt, mask, 2.0) for disp_est in disp_ests]
-            # scalar_outputs["Thres3"] = [Thres_metric(disp_est, disp_gt, mask, 3.0) for disp_est in disp_ests]
 
     return tensor2float(loss), tensor2float(scalar_outputs)
 
 
-def train_seg(sample, compute_metrics=False):
+def train_seg(sample):
     model.train()
     imgL, imgR, disp_gt = sample['left'], sample['right'], sample['disparity']
     imgL = imgL.cuda()
     imgR = imgR.cuda()
     optimizer.zero_grad()
-    fea, fea_pos,code,code_pos = model(imgL, imgR,train_seg=True)
-
-    loss=0
+    fea, fea_pos, code, code_pos = model(imgL, imgR)
+    loss = 0
     for i in range(3):
         (
             pos_intra_loss, pos_intra_cd,
             pos_inter_loss, pos_inter_cd,
             neg_inter_loss, neg_inter_cd,
-        ) = contrastive_corr_loss_fn(fea[i], fea_pos[i],None,None, code[i],code_pos[i])
+        ) = contrastive_corr_loss_fn(fea[i], fea_pos[i], None, None, code[i], code_pos[i])
         neg_inter_loss = neg_inter_loss.mean()
         pos_intra_loss = pos_intra_loss.mean()
         pos_inter_loss = pos_inter_loss.mean()
@@ -237,21 +254,22 @@ def train_seg(sample, compute_metrics=False):
 
     return tensor2float(loss)
 
+
 @make_nograd_func
-def test_seg(sample, compute_metrics=False):
+def test_seg(sample):
     model.eval()
     imgL, imgR, disp_gt = sample['left'], sample['right'], sample['disparity']
     imgL = imgL.cuda()
     imgR = imgR.cuda()
 
-    fea, fea_pos,code,code_pos = model(imgL, imgR,train_seg=True)
-    loss=0
+    fea, fea_pos, code, code_pos = model(imgL, imgR)
+    loss = 0
     for i in range(3):
         (
             pos_intra_loss, pos_intra_cd,
             pos_inter_loss, pos_inter_cd,
             neg_inter_loss, neg_inter_cd,
-        ) = contrastive_corr_loss_fn(fea[i], fea_pos[i],None,None, code[i],code_pos[i])
+        ) = contrastive_corr_loss_fn(fea[i], fea_pos[i], None, None, code[i], code_pos[i])
         neg_inter_loss = neg_inter_loss.mean()
         pos_intra_loss = pos_intra_loss.mean()
         pos_inter_loss = pos_inter_loss.mean()
@@ -260,28 +278,42 @@ def test_seg(sample, compute_metrics=False):
                  0.63 * neg_inter_loss) * 1.0
     scalar_outputs = {"loss": loss}
 
+    return tensor2float(loss), tensor2float(scalar_outputs)
 
-    return tensor2float(loss),tensor2float(scalar_outputs)
+
+@make_nograd_func
+def compute_occmask(model, imgL, imgR, disp_ests):
+    occ_masks = []
+    imgL_rev = imgL[:, :, :, torch.arange(imgL.size(3) - 1, -1, -1)]
+    imgR_rev = imgR[:, :, :, torch.arange(imgR.size(3) - 1, -1, -1)]
+    disp_right = model(imgR_rev, imgL_rev, refine_mode=args.refine_mode)
+    disp_right = [i[:, :, torch.arange(i.size(2) - 1, -1, -1)] for i in disp_right]
+    for i in range(len(disp_right)):
+        disp_rec = resample2d(-disp_right[i], disp_ests[i])
+        occ = ((disp_rec + disp_ests[i]) > 0.01 * (torch.abs(disp_rec) + torch.abs(disp_ests[i])) + 0.5) | (
+                disp_rec == 0)  # from occlusion aware
+        occ = ~occ
+        occ_masks.append(occ.unsqueeze(1).repeat(1, 3, 1, 1))
+    return occ_masks
 
 
 # test one sample
 @make_nograd_func
-def test_sample(sample, compute_metrics=True):
+def test_sample(sample):
     model.eval()
     imgL, imgR, disp_gt = sample['left'], sample['right'], sample['disparity']
     imgL = imgL.cuda()
     imgR = imgR.cuda()
     disp_gt = disp_gt.cuda()
     mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
-    disp_ests = model(imgL, imgR,refine_mode=args.refine_mode)
+    disp_ests = model(imgL, imgR, refine_mode=args.refine_mode)
 
-    loss = model_loss_test(disp_ests, disp_gt, mask,args.refine_mode)
-    scalar_outputs = {"loss": loss}
-    scalar_outputs["EPE"] = [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
-    scalar_outputs["D1"] = [D1_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
-    scalar_outputs["Thres1"] = [Thres_metric(disp_est, disp_gt, mask, 1.0) for disp_est in disp_ests]
-    scalar_outputs["Thres2"] = [Thres_metric(disp_est, disp_gt, mask, 2.0) for disp_est in disp_ests]
-    scalar_outputs["Thres3"] = [Thres_metric(disp_est, disp_gt, mask, 3.0) for disp_est in disp_ests]
+    loss = model_loss_test(disp_ests, disp_gt, mask, args.refine_mode)
+    scalar_outputs = {"loss": loss, "EPE": [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests],
+                      "D1": [D1_metric(disp_est, disp_gt, mask) for disp_est in disp_ests],
+                      "Thres1": [Thres_metric(disp_est, disp_gt, mask, 1.0) for disp_est in disp_ests],
+                      "Thres2": [Thres_metric(disp_est, disp_gt, mask, 2.0) for disp_est in disp_ests],
+                      "Thres3": [Thres_metric(disp_est, disp_gt, mask, 3.0) for disp_est in disp_ests]}
 
     return tensor2float(loss), tensor2float(scalar_outputs)
 

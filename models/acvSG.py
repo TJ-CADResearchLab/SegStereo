@@ -121,7 +121,7 @@ class seghead(nn.Module):
 class refine(nn.Module):
     def __init__(self, seg_channel, simple_nums=1):
         super(refine, self).__init__()
-        self.simple_nums=simple_nums
+        self.simple_nums = simple_nums
         self.conv = nn.Sequential(convbn(seg_channel + 2, seg_channel + 2, 3, 1, 1, 1),
                                   nn.ReLU(inplace=True),
                                   convbn(seg_channel + 2, simple_nums * 3, 3, 1, 1, 1),
@@ -133,29 +133,32 @@ class refine(nn.Module):
         disp = torch.unsqueeze(disp, dim=1)
         # seg_feature [b,c,h,w] error [b,1,h,w] disp [b,1,h,w]
         sample = self.conv(torch.cat([seg_feature, error, disp], dim=1))  # sample [b,node*3,h,w]
-        sample,weight=sample.split([2*self.simple_nums,self.simple_nums],dim=1)     # sample [b,node*2,h,w]  weight [b,node,h,w]
+        sample, weight = sample.split([2 * self.simple_nums, self.simple_nums],
+                                      dim=1)  # sample [b,node*2,h,w]  weight [b,node,h,w]
         sample = sample.view(sample.size()[0], sample.size()[1] // 2, 2, sample.size()[2], sample.size()[3])
         sample = sample.permute(0, 1, 3, 4, 2)  # sample [b,node,h,w,2]
-        disp_ref = torch.zeros([sample.size()[0], sample.size()[1], sample.size()[2], sample.size()[3]],device=sample.device)
+        disp_ref = torch.zeros([sample.size()[0], sample.size()[1], sample.size()[2], sample.size()[3]],
+                               device=sample.device)
         for i in range(sample.size()[1]):
             disp_ref[:, i, :, :] = resamplexy(disp, sample[:, i, :, :, :]).squeeze(1)
         if sample.size()[1] == 1:
             disp_ref = torch.squeeze(disp_ref, dim=1)
         else:
-            disp_ref = torch.sum(disp_ref*F.softmax(weight,dim=1),dim=1,keepdim=False)
+            disp_ref = torch.sum(disp_ref * F.softmax(weight, dim=1), dim=1, keepdim=False)
         return disp_ref
 
 
 class ACVSGNet(nn.Module):
-    def __init__(self, maxdisp,train_seg=False):
+    def __init__(self, maxdisp, only_train_seg=False):
         super(ACVSGNet, self).__init__()
         self.maxdisp = maxdisp
         self.num_groups = 40
         self.concat_channels = 32
         self.feature_extraction = feature_extraction(concat_feature_channel=self.concat_channels)
-        if train_seg:
+        self.only_train_seg = only_train_seg
+        if self.only_train_seg:
             for p in self.feature_extraction.parameters():
-                p.requires_grad=False
+                p.requires_grad = False
         self.patch_l1 = nn.Conv3d(8, 8, kernel_size=(1, 3, 3), stride=1, dilation=1, groups=8, padding=(0, 1, 1),
                                   bias=False)
         self.patch_l2 = nn.Conv3d(16, 16, kernel_size=(1, 3, 3), stride=1, dilation=2, groups=16, padding=(0, 2, 2),
@@ -216,20 +219,23 @@ class ACVSGNet(nn.Module):
             elif isinstance(m, nn.Linear):
                 m.bias.data.zero_()
 
-    def forward(self, left, right, refine_mode=False, train_seg=False):
+    def forward(self, left, right, refine_mode=False):
 
-        if train_seg:  # only train seg head
+        if self.only_train_seg:  # only train seg head
             with torch.no_grad():
                 features_left = self.feature_extraction(left, return_feature=True)
                 features_right = self.feature_extraction(right, return_feature=True)
-            segfea_left0 = self.seghead0(features_left['teacher_feature'][0])  # [b,64,1/4h,1/4w]
-            segfea_left1 = self.seghead1(features_left['teacher_feature'][1])  # [b,32,1/2h,1/2w]
-            segfea_left2 = self.seghead2(features_left['teacher_feature'][2])  # [b,16,h,w]
-            
-            segfea_right0 = self.seghead0(features_right['teacher_feature'][0])  # [b,64,1/4h,1/4w]
-            segfea_right1 = self.seghead1(features_right['teacher_feature'][1])  # [b,32,1/2h,1/2w]
-            segfea_right2 = self.seghead2(features_right['teacher_feature'][2])  # [b,16,h,w]
-            return features_left['teacher_feature'], features_right["teacher_feature"],[segfea_left0, segfea_left1, segfea_left2],[segfea_right0, segfea_right1, segfea_right2]
+            teacher_feature_left = features_left["teacher_feature"].detach()
+            segfea_left0 = self.seghead0(teacher_feature_left[0])  # [b,64,1/4h,1/4w]
+            segfea_left1 = self.seghead1(teacher_feature_left[1])  # [b,32,1/2h,1/2w]
+            segfea_left2 = self.seghead2(teacher_feature_left[2])  # [b,16,h,w]
+
+            teacher_feature_right = features_right["teacher_feature"].detach()
+            segfea_right0 = self.seghead0(teacher_feature_right[0])  # [b,64,1/4h,1/4w]
+            segfea_right1 = self.seghead1(teacher_feature_right[1])  # [b,32,1/2h,1/2w]
+            segfea_right2 = self.seghead2(teacher_feature_right[2])  # [b,16,h,w]
+            return teacher_feature_left, teacher_feature_right, [segfea_left0, segfea_left1, segfea_left2], [
+                segfea_right0, segfea_right1, segfea_right2]
 
         features_left = self.feature_extraction(left, return_feature=refine_mode)
         features_right = self.feature_extraction(right)
@@ -283,24 +289,33 @@ class ACVSGNet(nn.Module):
             pred2 = disparity_regression(pred2_pos, self.maxdisp)
 
             if refine_mode:
-
-                segfea0 = self.seghead0(features_left['teacher_feature'][0])  # [b,64,1/4h,1/4w]
-                segfea1 = self.seghead1(features_left['teacher_feature'][1])  # [b,32,1/2h,1/2w]
-                segfea2 = self.seghead2(features_left['teacher_feature'][2])  # [b,16,h,w]
+                teacher_feature_left = features_left["teacher_feature"].detach()
+                segfea_left0 = self.seghead0(teacher_feature_left[0])  # [b,64,1/4h,1/4w]
+                segfea_left1 = self.seghead1(teacher_feature_left[1])  # [b,32,1/2h,1/2w]
+                segfea_left2 = self.seghead2(teacher_feature_left[2])  # [b,16,h,w]
 
                 error0 = disparity_variance(pred0_pos, self.maxdisp // 4, pred0.unsqueeze(1))  # get the variance
                 error0 = error0.sqrt().detach()
-                pred0_ref = self.refine0(segfea0, error0, pred0)
+                pred0_ref = self.refine0(segfea_left0, error0, pred0)
 
                 error1 = disparity_variance(pred1_pos, self.maxdisp // 2, pred1.unsqueeze(1))  # get the variance
                 error1 = error1.sqrt().detach()
-                pred1_ref = self.refine1(segfea1, error1, pred1)
+                pred1_ref = self.refine1(segfea_left1, error1, pred1)
 
                 error2 = disparity_variance(pred2_pos, self.maxdisp, pred2.unsqueeze(1))  # get the variance
                 error2 = error2.sqrt().detach()
-                pred2_ref = self.refine2(segfea2, error2, pred2)
+                pred2_ref = self.refine2(segfea_left2, error2, pred2)
 
-                return [pred_attention, pred0, pred1, pred2, pred0_ref, pred1_ref, pred2_ref]
+                teacher_feature_right = features_right["teacher_feature"].detach()
+                segfea_right0 = self.seghead0(teacher_feature_right[0])  # [b,64,1/4h,1/4w]
+                segfea_right1 = self.seghead1(teacher_feature_right[1])  # [b,32,1/2h,1/2w]
+                segfea_right2 = self.seghead2(teacher_feature_right[2])  # [b,16,h,w]
+
+                return [pred_attention, pred0, pred1, pred2, pred0_ref, pred1_ref,
+                        pred2_ref], [teacher_feature_left, teacher_feature_right, [segfea_left0, segfea_left1,
+                                                                                   segfea_left2], [segfea_right0,
+                                                                                                   segfea_right1,
+                                                                                                   segfea_right2]]
             else:
                 return [pred_attention, pred0, pred1, pred2]
 
@@ -312,7 +327,8 @@ class ACVSGNet(nn.Module):
             pred2 = disparity_regression(pred2_pos, self.maxdisp)
 
             if refine_mode:
-                segfea2 = self.seghead2(features_left['teacher_feature'][2])  # [b,16,h,w]
+                teacher_feature_left = features_left["teacher_feature"].detach()
+                segfea2 = self.seghead2(teacher_feature_left[2])  # [b,16,h,w]
                 error2 = disparity_variance(pred2_pos, self.maxdisp, pred2.unsqueeze(1))  # get the variance
                 error2 = error2.sqrt().detach()
                 pred2_ref = self.refine2(segfea2, error2, pred2)
@@ -327,11 +343,11 @@ def acvsg(d):
 
 
 if __name__ == "__main__":
-    model = ACVSGNet(maxdisp=192,train_seg=True)
+    model = ACVSGNet(maxdisp=192, only_train_seg=True)
     left = torch.rand([1, 3, 256, 512])
     right = torch.rand([1, 3, 256, 512])
     model.train()
-    out = model(left, right,refine_mode=True)
-    for p  in model.feature_extraction.parameters():
+    out = model(left, right, refine_mode=True)
+    for p in model.feature_extraction.parameters():
         print(p.requires_grad)
 # print(out[0].shape,out[1].shape,out[2].shape,out[3].shape)

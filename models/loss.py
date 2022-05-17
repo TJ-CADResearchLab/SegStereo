@@ -2,15 +2,8 @@ import torch.nn.functional as F
 import torch
 from models.submoduleEDNet import resample2d
 import torch.nn as nn
-def model_loss_train(disp_ests, imgL,imgR):
-    weights = [0.7, 0.5, 0.7, 1.0]   #[0.5, 0.5, 0.7, 1.0]
-    all_losses = []
-    for disp_est, weight in zip(disp_ests, weights):
-        left_rec = resample2d(imgR, disp_est)
-        all_losses.append(weight * (0.15*F.smooth_l1_loss(left_rec,imgL, size_average=True)+0.85*SSIM(left_rec,imgL).mean()))
-    return sum(all_losses)
 
-def model_loss_train_scale(disp_ests, imgL,imgR,occ_masks,refine_mode):
+def model_loss_train_self(disp_ests, imgL,imgR,refine_mode,occ_masks):
     if refine_mode:
         weights = [0.7, 0.5, 0.7, 1.0,0.5,0.7,1.0]
         scales=[0,2,1,0,2,1,0]
@@ -24,7 +17,20 @@ def model_loss_train_scale(disp_ests, imgL,imgR,occ_masks,refine_mode):
         left_rec = resample2d(imgR_cur, disp_est)
         all_losses.append(weight * (0.15*F.smooth_l1_loss(left_rec[occ_mask],imgL_cur[occ_mask], size_average=True)+0.85*SSIM(left_rec,imgL_cur)[occ_mask].mean()))
     return sum(all_losses)
-    
+
+def model_loss_train(disp_ests,mask,refine_mode,disp_gts):
+    if refine_mode:
+        weights = [0.7, 0.5, 0.7, 1.0,0.5,0.7,1.0]
+        scales=[0,2,1,0,2,1,0]
+    else:
+        weights = [0.7, 0.5, 0.7, 1.0]
+        scales=[0,2,1,0]
+    all_losses = []
+    for disp_est, weight ,scale in zip(disp_ests, weights,scales):
+        disp_gt=F.avg_pool2d(disp_gts,(2**scale,2**scale))
+        all_losses.append(weight  * F.smooth_l1_loss(disp_est[mask], disp_gt[mask], size_average=True))
+    return sum(all_losses)
+
 def model_loss_test(disp_ests, disp_gt, mask,refine_mode):
     if refine_mode:
         weights = [1.0,1.0]
