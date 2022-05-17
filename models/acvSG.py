@@ -123,20 +123,23 @@ class refine(nn.Module):
         super(refine, self).__init__()
         self.simple_nums = simple_nums
         self.conv = nn.Sequential(convbn(seg_channel + 2, seg_channel + 2, 3, 1, 1, 1),
-                                  nn.ReLU(inplace=True),
+                                  nn.Sigmoid(),
                                   convbn(seg_channel + 2, simple_nums * 3, 3, 1, 1, 1),
-                                  nn.ReLU(inplace=True),
+                                  nn.Sigmoid(),
                                   convbn(simple_nums * 3, simple_nums * 3, 3, 1, 1, 1),
-                                  nn.ReLU(inplace=True))
+                                  nn.Sigmoid())
 
     def forward(self, seg_feature, error, disp):
         disp = torch.unsqueeze(disp, dim=1)
         # seg_feature [b,c,h,w] error [b,1,h,w] disp [b,1,h,w]
         sample = self.conv(torch.cat([seg_feature, error, disp], dim=1))  # sample [b,node*3,h,w]
+
         sample, weight = sample.split([2 * self.simple_nums, self.simple_nums],
                                       dim=1)  # sample [b,node*2,h,w]  weight [b,node,h,w]
         sample = sample.view(sample.size()[0], sample.size()[1] // 2, 2, sample.size()[2], sample.size()[3])
         sample = sample.permute(0, 1, 3, 4, 2)  # sample [b,node,h,w,2]
+        sample=(sample-0.5)*10
+
         disp_ref = torch.zeros([sample.size()[0], sample.size()[1], sample.size()[2], sample.size()[3]],
                                device=sample.device)
         for i in range(sample.size()[1]):
@@ -343,11 +346,11 @@ def acvsg(d):
 
 
 if __name__ == "__main__":
-    model = ACVSGNet(maxdisp=192, only_train_seg=True)
+    model = ACVSGNet(maxdisp=192, only_train_seg=False)
     left = torch.rand([1, 3, 256, 512])
     right = torch.rand([1, 3, 256, 512])
     model.train()
     out = model(left, right, refine_mode=True)
-    for p in model.feature_extraction.parameters():
-        print(p.requires_grad)
+   # for p in model.feature_extraction.parameters():
+     #   print(p.requires_grad)
 # print(out[0].shape,out[1].shape,out[2].shape,out[3].shape)
