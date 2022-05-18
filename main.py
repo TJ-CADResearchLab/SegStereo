@@ -48,7 +48,7 @@ parser.add_argument('--resume', action='store_true', help='continue training the
 parser.add_argument('--seed', type=int, default=1, metavar='S', help='random seed (default: 1)')
 parser.add_argument('--summary_freq', type=int, default=20, help='the frequency of saving summary')
 parser.add_argument('--save_freq', type=int, default=1, help='the frequency of saving checkpoint')
-parser.add_argument('--only_train_seg', action="store_true", help='only train seg head')
+parser.add_argument('--only_train_refine', action="store_true", help='only train seg head')
 parser.add_argument('--refine_mode', action="store_true", help='use refine')
 parser.add_argument('--self_supervised', action="store_true", help="use self supervised")
 # parse arguments, set seeds
@@ -69,12 +69,14 @@ TrainImgLoader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_wo
 TestImgLoader = DataLoader(test_dataset, args.test_batch_size, shuffle=False, num_workers=8, drop_last=False)
 
 # model, optimizer, loss
-if args.only_train_seg:
-    model = __models__[args.model](maxdisp=args.maxdisp, only_train_seg=True)
-else:
-    model = __models__[args.model](maxdisp=args.maxdisp)
+
+model = __models__[args.model](maxdisp=args.maxdisp)
 model = nn.DataParallel(model)
 model.cuda()
+if args.only_train_refine:
+    for name,p in model.named_parameters():
+        if not name.startswith("refine") and not name.startswith("seghead"):
+            p.requires_grad=False
 
 optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
 # optimizer = optim.SGD(model.parameters(), lr = args.lr, momentum=0.9)
@@ -84,7 +86,7 @@ if args.self_supervised:
 else:
     lossfunction = model_loss_train
 
-if args.only_train_seg or args.refine_mode:
+if args.refine_mode:
     contrastive_corr_loss_fn = ContrastiveCorrelationLoss()
 # load parameters
 start_epoch = 0
@@ -119,15 +121,13 @@ def train():
             #if batch_idx == 2: break
             global_step = len(TrainImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
-            if args.only_train_seg:
-                loss = train_seg(sample)
-            else:
-                do_summary = global_step % args.summary_freq == 0
-                loss, scalar_outputs = train_sample(sample, compute_metrics=do_summary)
-                if do_summary:
-                    save_scalars(logger, 'train', scalar_outputs, global_step)
-                    print('current batch information ', scalar_outputs)
-                del scalar_outputs
+
+            do_summary = global_step % args.summary_freq == 0
+            loss, scalar_outputs = train_sample(sample, compute_metrics=do_summary)
+            if do_summary:
+                save_scalars(logger, 'train', scalar_outputs, global_step)
+                print('current batch information ', scalar_outputs)
+            del scalar_outputs
 
             print('Epoch {}/{}, Iter {}/{}, train loss = {:.3f}, time = {:.3f}'.format(epoch_idx, args.epochs,
                                                                                        batch_idx,
@@ -142,22 +142,19 @@ def train():
             global_step = len(TestImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
             # do_summary = global_step % args.summary_freq == 0
-            if args.only_train_seg:
-                loss, scalar_outputs = test_seg(sample)
-                avg_test_scalars.update(scalar_outputs)
-            else:
-                do_summary = global_step % 1 == 0
-                loss, scalar_outputs = test_sample(sample)
-                if do_summary:
-                    save_scalars(logger, 'test', scalar_outputs, global_step)
 
-                avg_test_scalars.update(scalar_outputs)
+            do_summary = global_step % 1 == 0
+            loss, scalar_outputs = test_sample(sample)
+            if do_summary:
+                save_scalars(logger, 'test', scalar_outputs, global_step)
 
-                print('Epoch {}/{}, Iter {}/{}, test EPE = {}, time = {:3f}'.format(epoch_idx, args.epochs,
-                                                                                    batch_idx,
-                                                                                    len(TestImgLoader),
-                                                                                    scalar_outputs["EPE"],
-                                                                                    time.time() - start_time))
+            avg_test_scalars.update(scalar_outputs)
+
+            print('Epoch {}/{}, Iter {}/{}, test EPE = {}, time = {:3f}'.format(epoch_idx, args.epochs,
+                                                                                batch_idx,
+                                                                                len(TestImgLoader),
+                                                                                scalar_outputs["EPE"],
+                                                                                time.time() - start_time))
         avg_test_scalars = avg_test_scalars.mean()
         save_scalars(logger, 'fulltest', avg_test_scalars, len(TrainImgLoader) * (epoch_idx + 1))
         print("avg_test_scalars", avg_test_scalars)
@@ -166,17 +163,12 @@ def train():
         if (epoch_idx + 1) % args.save_freq == 0:
             checkpoint_data = {'epoch': epoch_idx, 'model': model.state_dict(), 'optimizer': optimizer.state_dict()}
             # id_epoch = (epoch_idx + 1) % 100
-            if args.only_train_seg:
-                torch.save(checkpoint_data, "{}/checkpoint_{:0>3}_segloss_{:.3f}.ckpt".format(args.logdir, epoch_idx,
-                                                                                              avg_test_scalars[
-                                                                                                  "loss"]))
+            if args.refine_mode:
+                torch.save(checkpoint_data, "{}/checkpoint_{:0>3}_epe_{:.3f}_{:.3f}.ckpt".format(args.logdir, epoch_idx,
+                                                                                        avg_test_scalars["EPE"][-2],avg_test_scalars["EPE"][-1]))
             else:
-                if args.refine_mode:
-                    torch.save(checkpoint_data, "{}/checkpoint_{:0>3}_epe_{:.3f}_{:.3f}.ckpt".format(args.logdir, epoch_idx,
-                                                                                          avg_test_scalars["EPE"][-2],avg_test_scalars["EPE"][-1]))
-                else:
-                    torch.save(checkpoint_data, "{}/checkpoint_{:0>3}_epe_{:.3f}.ckpt".format(args.logdir, epoch_idx,
-                                                                                          avg_test_scalars["EPE"][-1]))
+                torch.save(checkpoint_data, "{}/checkpoint_{:0>3}_epe_{:.3f}.ckpt".format(args.logdir, epoch_idx,
+                                                                                        avg_test_scalars["EPE"][-1]))
         gc.collect()
 
 
@@ -210,9 +202,9 @@ def train_sample(sample, compute_metrics=False):
         disp_ests = model(imgL, imgR, refine_mode=False)
     if args.self_supervised:
         occmask = compute_occmask(model, imgL, imgR, disp_ests)
-        loss += lossfunction(disp_ests, imgL, imgR, refine_mode=args.refine_mode, occ_masks=occmask)
+        loss += lossfunction(disp_ests, imgL, imgR, refine_mode=args.refine_mode, occ_masks=occmask,only_train_refine=args.only_train_refine)
     else:
-        loss += lossfunction(disp_ests,args.maxdisp, refine_mode=args.refine_mode, disp_gt=disp_gt)
+        loss += lossfunction(disp_ests,args.maxdisp, refine_mode=args.refine_mode, disp_gt=disp_gt,only_train_refine=args.only_train_refine)
     scalar_outputs = {"loss": loss}
     loss.backward()
     
@@ -228,59 +220,6 @@ def train_sample(sample, compute_metrics=False):
                 scalar_outputs['disp_loss']=loss
             mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
             scalar_outputs["EPE"] = [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests]
-
-    return tensor2float(loss), tensor2float(scalar_outputs)
-
-
-def train_seg(sample):
-    model.train()
-    imgL, imgR, disp_gt = sample['left'], sample['right'], sample['disparity']
-    imgL = imgL.cuda()
-    imgR = imgR.cuda()
-    optimizer.zero_grad()
-    fea, fea_pos, code, code_pos = model(imgL, imgR)
-    loss = 0
-    for i in range(3):
-        (
-            pos_intra_loss, pos_intra_cd,
-            pos_inter_loss, pos_inter_cd,
-            neg_inter_loss, neg_inter_cd,
-        ) = contrastive_corr_loss_fn(fea[i], fea_pos[i], None, None, code[i], code_pos[i])
-        neg_inter_loss = neg_inter_loss.mean()
-        pos_intra_loss = pos_intra_loss.mean()
-        pos_inter_loss = pos_inter_loss.mean()
-        loss += (0.25 * pos_inter_loss +
-                 0.67 * pos_intra_loss +
-                 0.63 * neg_inter_loss) * 1.0
-
-    loss.backward()
-    optimizer.step()
-
-    return tensor2float(loss)
-
-
-@make_nograd_func
-def test_seg(sample):
-    model.eval()
-    imgL, imgR, disp_gt = sample['left'], sample['right'], sample['disparity']
-    imgL = imgL.cuda()
-    imgR = imgR.cuda()
-
-    fea, fea_pos, code, code_pos = model(imgL, imgR)
-    loss = 0
-    for i in range(3):
-        (
-            pos_intra_loss, pos_intra_cd,
-            pos_inter_loss, pos_inter_cd,
-            neg_inter_loss, neg_inter_cd,
-        ) = contrastive_corr_loss_fn(fea[i], fea_pos[i], None, None, code[i], code_pos[i])
-        neg_inter_loss = neg_inter_loss.mean()
-        pos_intra_loss = pos_intra_loss.mean()
-        pos_inter_loss = pos_inter_loss.mean()
-        loss += (0.25 * pos_inter_loss +
-                 0.67 * pos_intra_loss +
-                 0.63 * neg_inter_loss) * 1.0
-    scalar_outputs = {"loss": loss}
 
     return tensor2float(loss), tensor2float(scalar_outputs)
 

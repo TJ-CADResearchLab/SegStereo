@@ -151,16 +151,14 @@ class refine(nn.Module):
 
 
 class ACVSGNet(nn.Module):
-    def __init__(self, maxdisp, only_train_seg=False):
+    def __init__(self, maxdisp):
         super(ACVSGNet, self).__init__()
         self.maxdisp = maxdisp
         self.num_groups = 40
         self.concat_channels = 32
         self.feature_extraction = feature_extraction(concat_feature_channel=self.concat_channels)
-        self.only_train_seg = only_train_seg
-        if self.only_train_seg:
-            for p in self.feature_extraction.parameters():
-                p.requires_grad = False
+
+
         self.patch_l1 = nn.Conv3d(8, 8, kernel_size=(1, 3, 3), stride=1, dilation=1, groups=8, padding=(0, 1, 1),
                                   bias=False)
         self.patch_l2 = nn.Conv3d(16, 16, kernel_size=(1, 3, 3), stride=1, dilation=2, groups=16, padding=(0, 2, 2),
@@ -222,22 +220,6 @@ class ACVSGNet(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, left, right, refine_mode=False):
-
-        if self.only_train_seg:  # only train seg head
-            with torch.no_grad():
-                features_left = self.feature_extraction(left, return_feature=True)
-                features_right = self.feature_extraction(right, return_feature=True)
-            teacher_feature_left = [ i.detach() for i in features_left["teacher_feature"]]
-            segfea_left0 = self.seghead0(teacher_feature_left[0])  # [b,64,1/4h,1/4w]
-            segfea_left1 = self.seghead1(teacher_feature_left[1])  # [b,32,1/2h,1/2w]
-            segfea_left2 = self.seghead2(teacher_feature_left[2])  # [b,16,h,w]
-
-            teacher_feature_right = [ i.detach() for i in features_right["teacher_feature"]]
-            segfea_right0 = self.seghead0(teacher_feature_right[0])  # [b,64,1/4h,1/4w]
-            segfea_right1 = self.seghead1(teacher_feature_right[1])  # [b,32,1/2h,1/2w]
-            segfea_right2 = self.seghead2(teacher_feature_right[2])  # [b,16,h,w]
-            return teacher_feature_left, teacher_feature_right, [segfea_left0, segfea_left1, segfea_left2], [
-                segfea_right0, segfea_right1, segfea_right2]
 
         features_left = self.feature_extraction(left, return_feature=refine_mode)
         features_right = self.feature_extraction(right,return_feature=refine_mode)
@@ -345,11 +327,10 @@ def acvsg(d):
 
 
 if __name__ == "__main__":
-    model = ACVSGNet(maxdisp=192, only_train_seg=False)
+    model = ACVSGNet(maxdisp=192)
     left = torch.rand([1, 3, 256, 512])
     right = torch.rand([1, 3, 256, 512])
     model.train()
     out = model(left, right, refine_mode=True)
-   # for p in model.feature_extraction.parameters():
-     #   print(p.requires_grad)
-# print(out[0].shape,out[1].shape,out[2].shape,out[3].shape)
+    for name, p in model.named_parameters():
+        print(name)
