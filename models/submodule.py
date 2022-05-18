@@ -472,8 +472,8 @@ def resamplexy(y, shift):
 
     grid = torch.stack([mw, mh], dim=3)
     grid=grid+shift
-    grid[:,0,:,:]=grid[:,0,:,:]/ ((width - 1.0) / 2.0) - 1.0
-    grid[:, 1, :, :] = grid[:, 1, :, :] / ((height - 1.0) / 2.0) - 1.0
+    grid[:,:,:,0]=grid[:,:,:,0]/ ((width - 1.0) / 2.0) - 1.0
+    grid[:,:,:,1] = grid[:,:,:,1] / ((height - 1.0) / 2.0) - 1.0
 
 
     y_warped = F.grid_sample(y, grid, mode='bilinear',

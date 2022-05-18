@@ -120,11 +120,11 @@ def test_sample(sample):
     imgR = imgR.cuda()
     disp_gt = disp_gt.cuda()
     mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
-    disp_ests= model(imgL, imgR)
+    disp_ests= model(imgL, imgR,refine_mode=True)
     left_rec = resample2d(imgR, disp_gt)
     left_rec=[left_rec]
     disp_gts = [disp_gt]
-    loss = model_loss_test(disp_ests, disp_gt, mask)
+    loss = model_loss_test(disp_ests, disp_gt, mask,refine_mode=True)
     scalar_outputs = {"loss": loss}
     occ_masks = []
     imgL_rev=imgL[:, :, :, torch.arange(imgL.size(3) - 1, -1, -1)]

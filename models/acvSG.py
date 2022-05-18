@@ -139,7 +139,6 @@ class refine(nn.Module):
         sample = sample.view(sample.size()[0], sample.size()[1] // 2, 2, sample.size()[2], sample.size()[3])
         sample = sample.permute(0, 1, 3, 4, 2)  # sample [b,node,h,w,2]
         sample=(sample-0.5)*10
-
         disp_ref = torch.zeros([sample.size()[0], sample.size()[1], sample.size()[2], sample.size()[3]],
                                device=sample.device)
         for i in range(sample.size()[1]):
