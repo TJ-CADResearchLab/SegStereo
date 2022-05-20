@@ -75,7 +75,7 @@ model = nn.DataParallel(model)
 model.cuda()
 if args.only_train_refine:
     for name,p in model.named_parameters():
-        if not name.startswith("refine") and not name.startswith("seghead"):
+        if not name.startswith("module.refine") and not name.startswith("module.seghead"):
             p.requires_grad=False
 
 optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
@@ -206,8 +206,7 @@ def train_sample(sample, compute_metrics=False):
     else:
         loss += lossfunction(disp_ests,args.maxdisp, refine_mode=args.refine_mode, disp_gt=disp_gt,only_train_refine=args.only_train_refine)
     scalar_outputs = {"loss": loss}
-    loss.backward()
-    
+    loss.backward() 
     optimizer.step()
     if compute_metrics:
         with torch.no_grad():
