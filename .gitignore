@@ -5,3 +5,5 @@ datasets/__pycache__/
 utils/__pycache__/
 log/
 valid_log/
+valid.sh
+train.sh
