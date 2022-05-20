@@ -6,13 +6,13 @@ import torch.nn as nn
 def model_loss_train_self(disp_ests, imgL,imgR,refine_mode,occ_masks,only_train_refine=False):
     if refine_mode:
         if only_train_refine:
-            weights = [0.0, 0.0, 0.0, 0.0,0.5,0.7,1.0]
+            weights = [0.0, 0.0, 0.0,0.5,0.7,1.0]
         else:
-            weights = [0.7, 0.5, 0.7, 1.0, 0.5, 0.7, 1.0]
-        scales=[0,2,1,0,2,1,0]
+            weights = [0.5, 0.7, 1.0, 0.5, 0.7, 1.0]
+        scales=[2,1,0,2,1,0]
     else:
-        weights = [0.7, 0.5, 0.7, 1.0]
-        scales=[0,2,1,0]
+        weights = [0.5, 0.7, 1.0]
+        scales=[2,1,0]
     all_losses = []
     for disp_est, weight ,scale,occ_mask in zip(disp_ests, weights,scales,occ_masks):
         if weight==0:
@@ -20,19 +20,25 @@ def model_loss_train_self(disp_ests, imgL,imgR,refine_mode,occ_masks,only_train_
         imgR_cur=F.interpolate(imgR,scale_factor=1/2**scale)
         imgL_cur = F.interpolate(imgL,scale_factor=1/2**scale)
         left_rec = resample2d(imgR_cur, disp_est)
-        all_losses.append(weight * (0.15*F.smooth_l1_loss(left_rec[occ_mask],imgL_cur[occ_mask], size_average=True)+0.85*SSIM(left_rec,imgL_cur)[occ_mask].mean()))
+
+        mean_disp = disp_est.mean(1, True).mean(2, True)
+        norm_disp = disp_est / (mean_disp + 1e-7)
+        smooth_loss = get_smooth_loss(norm_disp.unsqueeze(1), imgL_cur)
+        loss_ph=F.smooth_l1_loss(left_rec[occ_mask],imgL_cur[occ_mask], size_average=True)
+        loss_ssim=SSIM(left_rec,imgL_cur)[occ_mask].mean()
+        all_losses.append(weight * (0.01*smooth_loss+0.15*loss_ph+0.85*loss_ssim))
     return sum(all_losses)
 
 def model_loss_train(disp_ests,maxdisp,refine_mode,disp_gt,only_train_refine=False):
     if refine_mode:
         if only_train_refine:
-            weights = [0.0, 0.0, 0.0, 0.0,0.5,0.7,1.0]
+            weights = [0.0, 0.0, 0.0,0.5,0.7,1.0]
         else:
-            weights = [0.7, 0.5, 0.7, 1.0, 0.5, 0.7, 1.0]
-        scales=[0,2,1,0,2,1,0]
+            weights = [0.5, 0.7, 1.0, 0.5, 0.7, 1.0]
+        scales=[2,1,0,2,1,0]
     else:
-        weights = [0.7, 0.5, 0.7, 1.0]
-        scales=[0,2,1,0]
+        weights = [0.5, 0.7, 1.0]
+        scales=[2,1,0]
     all_losses = []
     for disp_est, weight ,scale in zip(disp_ests, weights,scales):
         if weight==0:
@@ -72,7 +78,20 @@ def SSIM(x,y):
 
     return torch.clamp((1 - SSIM_n / SSIM_d) / 2, 0, 1)
 
+def get_smooth_loss(disp, img):
+    """Computes the smoothness loss for a disparity image
+    The color image is used for edge-aware smoothness
+    """
+    grad_disp_x = torch.abs(disp[:, :, :, :-1] - disp[:, :, :, 1:])
+    grad_disp_y = torch.abs(disp[:, :, :-1, :] - disp[:, :, 1:, :])
 
+    grad_img_x = torch.mean(torch.abs(img[:, :, :, :-1] - img[:, :, :, 1:]), 1, keepdim=True)
+    grad_img_y = torch.mean(torch.abs(img[:, :, :-1, :] - img[:, :, 1:, :]), 1, keepdim=True)
+
+    grad_disp_x *= torch.exp(-grad_img_x)
+    grad_disp_y *= torch.exp(-grad_img_y)
+
+    return grad_disp_x.mean() + grad_disp_y.mean()
 
 class ContrastiveCorrelationLoss(nn.Module):
 

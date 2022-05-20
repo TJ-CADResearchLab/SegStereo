@@ -11,7 +11,7 @@ import time
 
 
 class feature_extraction(nn.Module):
-    def __init__(self, concat_feature_channel=32):
+    def __init__(self):
         super(feature_extraction, self).__init__()
 
         self.inplanes = 16
@@ -25,10 +25,7 @@ class feature_extraction(nn.Module):
         self.layer2 = self._make_layer(BasicBlock, 64, 16, 2, 1, 1)
         self.layer3 = self._make_layer(BasicBlock, 128, 3, 1, 1, 1)
         self.layer4 = self._make_layer(BasicBlock, 128, 3, 1, 1, 2)
-        self.lastconv = nn.Sequential(convbn(320, 128, 3, 1, 1, 1),
-                                      nn.ReLU(inplace=True),
-                                      nn.Conv2d(128, concat_feature_channel, kernel_size=1, padding=0, stride=1,
-                                                bias=False))
+
 
     def _make_layer(self, block, planes, blocks, stride, pad, dilation):
         downsample = None
@@ -54,11 +51,11 @@ class feature_extraction(nn.Module):
         l4 = self.layer4(l3)  # b,128,1/4h,1/4w
 
         gwc_feature = torch.cat((l2, l3, l4), dim=1)
-        concat_feature = self.lastconv(gwc_feature)
+
         if return_feature:
-            return {"gwc_feature": gwc_feature, "concat_feature": concat_feature, "teacher_feature": [l2, l1, l0]}
+            return {"gwc_feature": gwc_feature, "teacher_feature": [l2, l1, l0]}
         else:
-            return {"gwc_feature": gwc_feature, "concat_feature": concat_feature}
+            return {"gwc_feature": gwc_feature}
 
 
 class hourglass(nn.Module):
@@ -155,16 +152,8 @@ class ACVSGNet(nn.Module):
         super(ACVSGNet, self).__init__()
         self.maxdisp = maxdisp
         self.num_groups = 40
-        self.concat_channels = 32
-        self.feature_extraction = feature_extraction(concat_feature_channel=self.concat_channels)
 
-
-        self.patch_l1 = nn.Conv3d(8, 8, kernel_size=(1, 3, 3), stride=1, dilation=1, groups=8, padding=(0, 1, 1),
-                                  bias=False)
-        self.patch_l2 = nn.Conv3d(16, 16, kernel_size=(1, 3, 3), stride=1, dilation=2, groups=16, padding=(0, 2, 2),
-                                  bias=False)
-        self.patch_l3 = nn.Conv3d(16, 16, kernel_size=(1, 3, 3), stride=1, dilation=3, groups=16, padding=(0, 3, 3),
-                                  bias=False)
+        self.feature_extraction = feature_extraction()
 
         self.seghead0 = seghead(64)
         self.seghead1 = seghead(32)
@@ -173,15 +162,7 @@ class ACVSGNet(nn.Module):
         self.refine1 = refine(32, simple_nums=1)
         self.refine2 = refine(16, simple_nums=1)
 
-        self.dres1_att = nn.Sequential(convbn_3d(40, 16, 3, 1, 1),
-                                       nn.ReLU(inplace=True),
-                                       convbn_3d(16, 16, 3, 1, 1))
-        self.dres2_att = hourglass(16)
-        self.classif_att = nn.Sequential(convbn_3d(16, 16, 3, 1, 1),
-                                         nn.ReLU(inplace=True),
-                                         nn.Conv3d(16, 1, kernel_size=3, padding=1, stride=1, bias=False))
-
-        self.dres0 = nn.Sequential(convbn_3d(self.concat_channels * 2, 32, 3, 1, 1),
+        self.dres0 = nn.Sequential(convbn_3d(self.num_groups, 32, 3, 1, 1),
                                    nn.ReLU(inplace=True),
                                    convbn_3d(32, 32, 3, 1, 1),
                                    nn.ReLU(inplace=True))
@@ -223,25 +204,13 @@ class ACVSGNet(nn.Module):
 
         features_left = self.feature_extraction(left, return_feature=refine_mode)
         features_right = self.feature_extraction(right,return_feature=refine_mode)
-        # gwc_feature [b, 320, 1/4h , 1/4w]; concat_feature [b, 32, 1/4h, 1/4w];
+        # gwc_feature [b, 320, 1/4h , 1/4w];
         # teacher_feature [[b, 64, 1/4h, 1/4w],   [b,32,1/2h,1/2w],   [b,16,h,w]]
 
         gwc_volume = build_gwc_volume(features_left["gwc_feature"], features_right["gwc_feature"], self.maxdisp // 4,
                                       self.num_groups)
-        patch_l1 = self.patch_l1(gwc_volume[:, :8])
-        patch_l2 = self.patch_l2(gwc_volume[:, 8:24])
-        patch_l3 = self.patch_l3(gwc_volume[:, 24:40])
-        patch_volume = torch.cat((patch_l1, patch_l2, patch_l3), dim=1)
-        concat_volume = build_concat_volume(features_left["concat_feature"], features_right["concat_feature"],
-                                            self.maxdisp // 4)
-        cost_attention = self.dres1_att(patch_volume)
 
-        cost_attention = self.dres2_att(cost_attention)  # [b, 16, 48, 1/4h, 1/4w]
-
-        att_weights = self.classif_att(cost_attention)  # [b, 1, 48, 1/4h, 1/4w]
-        ac_volume = att_weights * concat_volume  # [b, 64, 48, 1/4h, 1/4w]
-
-        cost0 = self.dres0(ac_volume)  # [b, 32, 48, 1/4h, 1/4w]
+        cost0 = self.dres0(gwc_volume)  # [b, 32, 48, 1/4h, 1/4w]
         cost0 = self.dres1(cost0) + cost0  # [b, 32, 48, 1/4h, 1/4w]
         out1 = self.dres2(cost0)  # [b, 32, 48, 1/4h, 1/4w]
         out2 = self.dres3(out1)  # [b, 32, 48, 1/4h, 1/4w]
@@ -251,11 +220,6 @@ class ACVSGNet(nn.Module):
             cost0 = self.classif0(cost0)
             cost1 = self.classif1(out1)
             cost2 = self.classif2(out2)
-
-            cost_attention = F.upsample(att_weights, [self.maxdisp, left.size()[2], left.size()[3]], mode='trilinear')
-            cost_attention = torch.squeeze(cost_attention, 1)
-            pred_attention = F.softmax(cost_attention, dim=1)
-            pred_attention = disparity_regression(pred_attention, self.maxdisp)
 
             cost0 = F.upsample(cost0, [self.maxdisp // 4, left.size()[2] // 4, left.size()[3] // 4], mode='trilinear')
             cost0 = torch.squeeze(cost0, 1)
@@ -295,13 +259,13 @@ class ACVSGNet(nn.Module):
                 segfea_right1 = self.seghead1(teacher_feature_right[1])  # [b,32,1/2h,1/2w]
                 segfea_right2 = self.seghead2(teacher_feature_right[2])  # [b,16,h,w]
 
-                return [pred_attention, pred0, pred1, pred2, pred0_ref, pred1_ref,
+                return [pred0, pred1, pred2, pred0_ref, pred1_ref,
                         pred2_ref], [teacher_feature_left, teacher_feature_right, [segfea_left0, segfea_left1,
                                                                                    segfea_left2], [segfea_right0,
                                                                                                    segfea_right1,
                                                                                                    segfea_right2]]
             else:
-                return [pred_attention, pred0, pred1, pred2]
+                return [pred0, pred1, pred2]
 
         else:
             cost2 = self.classif2(out2)
