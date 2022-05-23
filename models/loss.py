@@ -26,7 +26,8 @@ def model_loss_train_self(disp_ests, imgL,imgR,refine_mode,occ_masks,only_train_
         smooth_loss = get_smooth_loss(norm_disp.unsqueeze(1), imgL_cur)
         loss_ph=F.smooth_l1_loss(left_rec[occ_mask],imgL_cur[occ_mask], size_average=True)
         loss_ssim=SSIM(left_rec,imgL_cur)[occ_mask].mean()
-        all_losses.append(weight * (0.01*smooth_loss+0.15*loss_ph+0.85*loss_ssim))
+        all_losses.append(weight * (0.001*smooth_loss+0.15*loss_ph+0.85*loss_ssim))
+        #print("smooth",smooth_loss.item(),"ph",loss_ph.item(),"ssim",loss_ssim.item())
     return sum(all_losses)
 
 def model_loss_train(disp_ests,maxdisp,refine_mode,disp_gt,only_train_refine=False):
