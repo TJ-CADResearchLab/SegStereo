@@ -122,7 +122,7 @@ def compute_occmask(model, imgL, imgR, disp_ests, refine_mode):
     disp_right = [i[:, :, torch.arange(i.size(2) - 1, -1, -1)] for i in disp_right]
     for i in range(len(disp_right)):
         disp_rec = resample2d(-disp_right[i], disp_ests[i])
-        occ = ((disp_rec + disp_ests[i]) > occ_a[i] * (torch.abs(disp_rec) + torch.abs(disp_ests[i])) + 0.5) | (
+        occ = (torch.abs(disp_rec + disp_ests[i]) > occ_a[i] * (torch.abs(disp_rec) + torch.abs(disp_ests[i])) + 0.5) | (
                 disp_rec == 0)  # from occlusion aware
         occ = ~occ
         occ_masks.append(occ.unsqueeze(1).repeat(1, 3, 1, 1))

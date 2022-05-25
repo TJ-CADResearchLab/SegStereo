@@ -136,9 +136,9 @@ def test_sample(sample):
     occ_a=[0.1,0.01]
     for i in range(len(disp_right)):
         disp_rec = resample2d(-disp_right[i], disp_ests[i])
-        occ = ((disp_rec + disp_ests[i]) > occ_a[i]* (
+        occ = (torch.abs(disp_rec + disp_ests[i]) > occ_a[i]* (
                     torch.abs(disp_rec) + torch.abs(disp_ests[i])) + 0.5) |( disp_rec == 0)  # from occlusion aware
-        occ_masks.append(occ*1)
+        occ_masks.append(occ*1.0)
     image_outputs = {"disp_est": disp_ests, "disp_gt": disp_gts, "imgL": imgL, "imgR": imgR,"left_rec":left_rec,"occ_mask":occ_masks,"disp_right":disp_right}
     image_outputs["errormap"] = [disp_error_image_func.apply(disp_est, disp_gt) for disp_est in disp_ests]
 
