@@ -45,7 +45,7 @@ parser.add_argument('--resume', action='store_true', help='continue training the
 parser.add_argument('--seed', type=int, default=1, metavar='S', help='random seed (default: 1)')
 parser.add_argument('--summary_freq', type=int, default=20, help='the frequency of saving summary')
 parser.add_argument('--save_freq', type=int, default=1, help='the frequency of saving checkpoint')
-
+parser.add_argument('--refine_mode', action="store_true", help='use refine')
 # parse arguments, set seeds
 args = parser.parse_args()
 torch.manual_seed(args.seed)
@@ -89,7 +89,7 @@ def valid():
         # # testing
         avg_test_scalars = AverageMeterDict()
         for batch_idx, sample in enumerate(TestImgLoader):
-            if batch_idx==10:break
+            if batch_idx==20:break
             global_step = len(TestImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
 
@@ -120,23 +120,25 @@ def test_sample(sample):
     imgR = imgR.cuda()
     disp_gt = disp_gt.cuda()
     mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
-    disp_ests= model(imgL, imgR,refine_mode=True)
+    disp_ests= model(imgL, imgR,refine_mode=args.refine_mode)
     left_rec = resample2d(imgR, disp_gt)
     left_rec=[left_rec]
     disp_gts = [disp_gt]
-    loss = model_loss_test(disp_ests, disp_gt, mask,refine_mode=True)
+    loss = model_loss_test(disp_ests, disp_gt, mask)
     scalar_outputs = {"loss": loss}
     occ_masks = []
     imgL_rev=imgL[:, :, :, torch.arange(imgL.size(3) - 1, -1, -1)]
     imgR_rev=imgR[:, :, :, torch.arange(imgR.size(3) - 1, -1, -1)]
-    disp_right = model(imgR_rev, imgL_rev)
+    disp_right = model(imgR_rev, imgL_rev,refine_mode=args.refine_mode)
 
     disp_right=[i[:,:,torch.arange(i.size(2)-1,-1,-1)] for i in disp_right]
+
+    occ_a=[0.1,0.01]
     for i in range(len(disp_right)):
         disp_rec = resample2d(-disp_right[i], disp_ests[i])
-        occ = ((disp_rec + disp_ests[i]) > 0.01 * (
+        occ = ((disp_rec + disp_ests[i]) > occ_a[i]* (
                     torch.abs(disp_rec) + torch.abs(disp_ests[i])) + 0.5) |( disp_rec == 0)  # from occlusion aware
-        occ_masks.append(occ*0.99)
+        occ_masks.append(occ*1)
     image_outputs = {"disp_est": disp_ests, "disp_gt": disp_gts, "imgL": imgL, "imgR": imgR,"left_rec":left_rec,"occ_mask":occ_masks,"disp_right":disp_right}
     image_outputs["errormap"] = [disp_error_image_func.apply(disp_est, disp_gt) for disp_est in disp_ests]
 

@@ -14,7 +14,7 @@ import numpy as np
 import time
 from tensorboardX import SummaryWriter
 from datasets import __datasets__
-from models import __models__, model_loss_train, model_loss_test, model_loss_train_self, ContrastiveCorrelationLoss
+from models import __models__, model_loss_train, model_loss_test, model_loss_train_self, ContrastiveCorrelationLoss,compute_occmask
 from models.submoduleEDNet import resample2d
 from utils import *
 from torch.utils.data import DataLoader
@@ -185,7 +185,7 @@ def train_sample(sample, compute_metrics=False):
         disp_ests, seg_res = model(imgL, imgR, refine_mode=True)
         fea, fea_pos, code, code_pos = seg_res
         seg_loss = 0
-        for i in range(3):
+        for i in range(len(code)):
             (
                 pos_intra_loss, pos_intra_cd,
                 pos_inter_loss, pos_inter_cd,
@@ -201,17 +201,18 @@ def train_sample(sample, compute_metrics=False):
     else:
         disp_ests = model(imgL, imgR, refine_mode=False)
     if args.self_supervised:
-        occmask = compute_occmask(model, imgL, imgR, disp_ests)
-        loss += lossfunction(disp_ests, imgL, imgR, refine_mode=args.refine_mode, occ_masks=occmask,only_train_refine=args.only_train_refine)
+        occmask = compute_occmask(model, imgL, imgR, disp_ests,args.refine_mode)
+        loss += lossfunction(disp_ests, imgL, imgR, refine_mode=args.refine_mode, occ_masks=occmask,only_train_refine=args.only_train_refine,seg_features=code if args.refine_mode else None)
     else:
-        loss += lossfunction(disp_ests,args.maxdisp, refine_mode=args.refine_mode, disp_gt=disp_gt,only_train_refine=args.only_train_refine)
+        loss += lossfunction(disp_ests,args.maxdisp, refine_mode=args.refine_mode, disp_gt=disp_gt,only_train_refine=args.only_train_refine,seg_features=code if args.refine_mode else None)
+
     scalar_outputs = {"loss": loss}
     loss.backward() 
     optimizer.step()
     if compute_metrics:
         with torch.no_grad():
             if args.refine_mode:
-                disp_ests = [disp_ests[-4], disp_ests[-1]]  # origin pixels
+                disp_ests = [i for i in disp_ests if i.size()[-1]==imgL.size()[-1] ]  # origin pixels
                 scalar_outputs['seg_loss']=seg_loss
                 scalar_outputs['disp_loss']=loss-seg_loss
             else:
@@ -223,25 +224,7 @@ def train_sample(sample, compute_metrics=False):
     return tensor2float(loss), tensor2float(scalar_outputs)
 
 
-@make_nograd_func
-def compute_occmask(model, imgL, imgR, disp_ests):
-    occ_masks = []
-    imgL_rev = imgL[:, :, :, torch.arange(imgL.size(3) - 1, -1, -1)]
-    imgR_rev = imgR[:, :, :, torch.arange(imgR.size(3) - 1, -1, -1)]
-    if args.refine_mode:
-        disp_right,_ = model(imgR_rev, imgL_rev, refine_mode=True)
-        occ_a=[0.1,0.1,0.1,0.01,0.01,0.01]
-    else:
-        disp_right=model(imgR_rev, imgL_rev, refine_mode=False)
-        occ_a=[0.1,0.1,0.1]
-    disp_right = [i[:, :, torch.arange(i.size(2) - 1, -1, -1)] for i in disp_right]
-    for i in range(len(disp_right)):
-        disp_rec = resample2d(-disp_right[i], disp_ests[i])
-        occ = ((disp_rec + disp_ests[i]) > occ_a[i] * (torch.abs(disp_rec) + torch.abs(disp_ests[i])) + 0.5) | (
-                disp_rec == 0)  # from occlusion aware
-        occ = ~occ
-        occ_masks.append(occ.unsqueeze(1).repeat(1, 3, 1, 1))
-    return occ_masks
+
 
 
 # test one sample
@@ -255,7 +238,7 @@ def test_sample(sample):
     mask = (disp_gt < args.maxdisp) & (disp_gt > 0)
     disp_ests = model(imgL, imgR, refine_mode=args.refine_mode)
 
-    loss = model_loss_test(disp_ests, disp_gt, mask, args.refine_mode)
+    loss = model_loss_test(disp_ests, disp_gt, mask)
     scalar_outputs = {"loss": loss, "EPE": [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests],
                       "D1": [D1_metric(disp_est, disp_gt, mask) for disp_est in disp_ests],
                       "Thres1": [Thres_metric(disp_est, disp_gt, mask, 1.0) for disp_est in disp_ests],
