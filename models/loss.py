@@ -289,3 +289,37 @@ class ContrastiveCorrelationLoss(nn.Module):
                 pos_inter_cd,
                 neg_inter_loss,
                 neg_inter_cd)
+
+class ContrastiveCRFLoss(nn.Module):
+
+    def __init__(self):
+        super(ContrastiveCRFLoss, self).__init__()
+        self.alpha = 0.5
+        self.beta = 0.15
+        self.gamma = 0.05
+        self.w1 = 10.0
+        self.w2 = 3.0
+        self.n_samples = 1000
+        self.shift = 0.00
+
+    def forward(self, guidance, clusters):
+        device = clusters.device
+        assert (guidance.shape[0] == clusters.shape[0])
+        assert (guidance.shape[2:] == clusters.shape[2:])
+        h = guidance.shape[2]
+        w = guidance.shape[3]
+
+        coords = torch.cat([
+            torch.randint(0, h, size=[1, self.n_samples], device=device),
+            torch.randint(0, w, size=[1, self.n_samples], device=device)], 0)
+
+        selected_guidance = guidance[:, :, coords[0, :], coords[1, :]]
+        coord_diff = (coords.unsqueeze(-1) - coords.unsqueeze(1)).square().sum(0).unsqueeze(0)
+        guidance_diff = (selected_guidance.unsqueeze(-1) - selected_guidance.unsqueeze(2)).square().sum(1)
+
+        sim_kernel = self.w1 * torch.exp(- coord_diff / (2 * self.alpha) - guidance_diff / (2 * self.beta)) + \
+                     self.w2 * torch.exp(- coord_diff / (2 * self.gamma)) - self.shift
+
+        selected_clusters = clusters[:, :, coords[0, :], coords[1, :]]
+        cluster_sims = torch.einsum("nka,nkb->nab", selected_clusters, selected_clusters)
+        return -(cluster_sims * sim_kernel)

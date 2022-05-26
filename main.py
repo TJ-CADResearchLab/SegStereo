@@ -14,7 +14,7 @@ import numpy as np
 import time
 from tensorboardX import SummaryWriter
 from datasets import __datasets__
-from models import __models__, model_loss_train, model_loss_test, model_loss_train_self, ContrastiveCorrelationLoss,compute_occmask
+from models import __models__, model_loss_train, model_loss_test, model_loss_train_self, ContrastiveCorrelationLoss,compute_occmask,ContrastiveCRFLoss
 from models.submoduleEDNet import resample2d
 from utils import *
 from torch.utils.data import DataLoader
@@ -88,6 +88,7 @@ else:
 
 if args.refine_mode:
     contrastive_corr_loss_fn = ContrastiveCorrelationLoss()
+    crf_loss_fn=ContrastiveCRFLoss()
 # load parameters
 start_epoch = 0
 if args.resume:
@@ -185,6 +186,7 @@ def train_sample(sample, compute_metrics=False):
         disp_ests, seg_res = model(imgL, imgR, refine_mode=True)
         fea, fea_pos, code, code_pos = seg_res
         seg_loss = 0
+        crf_loss=0
         for i in range(len(code)):
             (
                 pos_intra_loss, pos_intra_cd,
@@ -197,7 +199,14 @@ def train_sample(sample, compute_metrics=False):
             seg_loss += (0.25 * pos_inter_loss +
                          0.67 * pos_intra_loss +
                          0.63 * neg_inter_loss) * 1.0
+            crf = crf_loss_fn(
+                F.interpolate(imgL,size=[56,56],mode="bilinear", align_corners=False),
+                F.normalize((F.interpolate(code[i],size=[56,56],mode="bilinear", align_corners=False)), dim=1, eps=1e-10)
+            ).mean()
+            crf_loss+=crf
         loss += seg_loss
+        loss+=crf_loss
+
     else:
         disp_ests = model(imgL, imgR, refine_mode=False)
     if args.self_supervised:
@@ -214,7 +223,8 @@ def train_sample(sample, compute_metrics=False):
             if args.refine_mode:
                 disp_ests = [i for i in disp_ests if i.size()[-1]==imgL.size()[-1] ]  # origin pixels
                 scalar_outputs['seg_loss']=seg_loss
-                scalar_outputs['disp_loss']=loss-seg_loss
+                scalar_outputs['crf_loss']=crf_loss
+                scalar_outputs['disp_loss']=loss-seg_loss-crf_loss
             else:
                 disp_ests = [disp_ests[-1]]
                 scalar_outputs['disp_loss']=loss
