@@ -4,12 +4,12 @@ from models.submoduleEDNet import resample2d
 import torch.nn as nn
 from utils.experiment import make_nograd_func
 
-config = {"weights": [0.5, 0.7, 1.0],
-          "scales": [2, 1, 0],
-          "refine_weights": [0.5, 0.7, 1.0],
-          "refine_scales": [2, 1, 0],
-          "occ_masks": [0.1, 0.1, 0.1],
-          "refine_occ_masks": [0.01, 0.01, 0.01]
+config = {"weights": [0.5,0.5, 0.7, 1.0],
+          "scales": [0,0, 0, 0],
+          "refine_weights": [ 1.0],
+          "refine_scales": [ 0],
+          "occ_masks": [0.1, 0.1, 0.1,0.1],
+          "refine_occ_masks": [0.01]
           }
 
 
@@ -58,7 +58,7 @@ def model_loss_train_self(disp_ests, imgL, imgR, refine_mode, occ_masks, only_tr
             all_losses.append(weight * (0.01 * smooth_loss + 0.15 * loss_ph + 0.85 * loss_ssim))
 
         # L1 loss
-        L1 = True
+        L1 = False
         if L1:
             for i in range(len(refine_disp_ests)):
                 disp_gt = refine_disp_ests[-(i + 1)].detach()
