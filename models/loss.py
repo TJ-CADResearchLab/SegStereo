@@ -52,7 +52,8 @@ def model_loss_train_self(disp_ests, imgL, imgR, refine_mode, occ_masks, only_tr
             norm_disp = disp_est / (mean_disp + 1e-7)
 
             # refine disp loss: seg-disp smooth , ph (occ 阈值不一样) , ssim
-            smooth_loss = get_smooth_loss(norm_disp.unsqueeze(1), seg_feature)
+            # 在无监督中 seg作为边界gt修正disp，所以seg不进行梯度更新
+            smooth_loss = get_smooth_loss(norm_disp.unsqueeze(1), seg_feature.detach())
             loss_ph = F.smooth_l1_loss(left_rec[occ_mask], imgL_cur[occ_mask], size_average=True)
             loss_ssim = SSIM(left_rec, imgL_cur)[occ_mask].mean()
             all_losses.append(weight * (0.01 * smooth_loss + 0.15 * loss_ph + 0.85 * loss_ssim))
