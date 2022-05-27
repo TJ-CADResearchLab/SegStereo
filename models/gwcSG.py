@@ -106,21 +106,36 @@ class hourglass(nn.Module):
 class seghead(nn.Module):
     def __init__(self, in_channels):
         super(seghead, self).__init__()
-        self.conv = nn.Sequential(convbn(in_channels, in_channels, 3, 1, 1, 1),
-                                  nn.ReLU(inplace=True),
-                                  convbn(in_channels, in_channels, 3, 1, 1, 1),
-                                  nn.ReLU(inplace=True),
-                                  convbn(in_channels, in_channels, 3, 1, 1, 1),
-                                  nn.ReLU(inplace=True))
+        self.features = []
+        for bin in [1,2,3,6]:  # self.features是一个列表，列表中的每一项是多个卷积层，用来将输入的特征图自适应平均池化到指定大小，然后用1*1的卷积降低维度
+            self.features.append(nn.Sequential(
+                nn.AdaptiveAvgPool2d(bin),
+                nn.Conv2d(in_channels, in_channels//4, kernel_size=1, bias=False),
+                nn.BatchNorm2d(in_channels//4),
+                nn.ReLU(inplace=True)
+            ))
+        self.cls = nn.Sequential(
+            nn.Conv2d(in_channels*2, 128, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+
+        )
+        self.features = nn.ModuleList(self.features)
 
     def forward(self, x):
-        x = self.conv(x)
-        return x
+        x_size = x.size()
+        out = [x]
+        for f in self.features:  # f(x)表示对输入的特征图执行sele.features中每个元素所指定的卷积操作，从而将输入特征图分别变为32*1*1,32*2*2，32*3*3,32*6*6的特征图
 
+            out.append(F.interpolate(f(x), size=x_size[2:], mode='bilinear',
+                                     align_corners=True))  # 将特征图的尺寸利用上采样变为32*h*w,32*h*w,32*h*w,32*h*w
+        out=torch.cat(out, 1)
+        out=self.cls(out)
+        return out
 
-class refine(nn.Module):
+class refine_simple(nn.Module):
     def __init__(self, seg_channel, simple_nums=1):
-        super(refine, self).__init__()
+        super(refine_simple, self).__init__()
         self.simple_nums = simple_nums
         self.conv = nn.Sequential(convbn(seg_channel + 2, seg_channel + 2, 3, 1, 1, 1),
                                   nn.Sigmoid(),
@@ -149,6 +164,27 @@ class refine(nn.Module):
             disp_ref = torch.sum(disp_ref * F.softmax(weight, dim=1), dim=1, keepdim=False)
         return disp_ref
 
+
+class refine(nn.Module):
+    def __init__(self, seg_channel):
+        super(refine, self).__init__()
+
+        self.conv = nn.Sequential(convbn(seg_channel + 2, seg_channel//2, 3, 1, 1, 1),
+                                  nn.ReLU(inplace=True),
+
+                                  convbn(seg_channel//2, seg_channel//4, 3, 1, 1, 1),
+                                  nn.ReLU(inplace=True))
+        self.res=nn.Conv2d(seg_channel//4, 1, 1, 1, bias=False)
+
+    def forward(self, seg_feature, error, disp):
+        disp = torch.unsqueeze(disp, dim=1)
+        # seg_feature [b,c,h,w] error [b,1,h,w] disp [b,1,h,w]
+        sample = self.conv(torch.cat([seg_feature, error, disp], dim=1))  # sample [b,node*3,h,w]
+
+        disp_ref=disp+self.res(sample)
+        disp_ref=torch.squeeze(disp_ref,dim=1)
+        return disp_ref
+
 class GwcSGNet(nn.Module):
     def __init__(self, maxdisp, use_concat_volume=False):
         super(GwcSGNet, self).__init__()
@@ -158,7 +194,7 @@ class GwcSGNet(nn.Module):
         self.num_groups = 40
 
         self.seghead = seghead(128)
-        self.refine = refine(128, simple_nums=1)
+        self.refine = refine(128)
 
         if self.use_concat_volume:
             self.concat_channels = 12
@@ -308,7 +344,7 @@ if __name__ == "__main__":
     model = GwcSGNet(maxdisp=192)
     left = torch.rand([1, 3, 256, 512])
     right = torch.rand([1, 3, 256, 512])
-    model.train()
+    model.eval()
     out = model(left, right, refine_mode=True)
     for name, p in model.named_parameters():
         print(name)
