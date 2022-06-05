@@ -133,9 +133,9 @@ class seghead(nn.Module):
         out=self.cls(out)
         return out
 
-class refine_simple(nn.Module):
+class refine(nn.Module):
     def __init__(self, seg_channel, simple_nums=1):
-        super(refine_simple, self).__init__()
+        super(refine, self).__init__()
         self.simple_nums = simple_nums
         self.conv = nn.Sequential(convbn(seg_channel + 2, seg_channel + 2, 3, 1, 1, 1),
                                   nn.Sigmoid(),
@@ -165,7 +165,7 @@ class refine_simple(nn.Module):
         return disp_ref
 
 
-class refine(nn.Module):
+class refine_t(nn.Module):
     def __init__(self, seg_channel):
         super(refine, self).__init__()
 
@@ -194,7 +194,7 @@ class GwcSGNet(nn.Module):
         self.num_groups = 40
 
         self.seghead = seghead(128)
-        self.refine = refine(128)
+        self.refine = refine(128,simple_nums=6)
 
         if self.use_concat_volume:
             self.concat_channels = 12
@@ -344,7 +344,7 @@ if __name__ == "__main__":
     model = GwcSGNet(maxdisp=192)
     left = torch.rand([1, 3, 256, 512])
     right = torch.rand([1, 3, 256, 512])
-    model.train()
+    model.eval()
     out = model(left, right, refine_mode=True)
     for name, p in model.named_parameters():
         print(name)
