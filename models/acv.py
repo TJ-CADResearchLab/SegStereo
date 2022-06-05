@@ -47,12 +47,12 @@ class feature_extraction(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        x = self.firstconv(x)
-        x = self.layer1(x)
-        l2 = self.layer2(x)
-        l3 = self.layer3(l2)
+        x = self.firstconv(x)   # b,32,1/2h,1/2w
+        x = self.layer1(x)      # b,32,1/2h,1/2w
+        l2 = self.layer2(x)     # b,64,1/4h,1/4w
+        l3 = self.layer3(l2)    # b,128,1/4h,1/4w
 
-        l4 = self.layer4(l3)
+        l4 = self.layer4(l3)    # b,128,1/4h,1/4w
         gwc_feature = torch.cat((l2, l3, l4), dim=1)
         concat_feature = self.lastconv(gwc_feature)
         return {"gwc_feature": gwc_feature, "concat_feature": concat_feature}

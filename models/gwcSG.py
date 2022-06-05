@@ -107,7 +107,7 @@ class seghead(nn.Module):
     def __init__(self, in_channels):
         super(seghead, self).__init__()
         self.features = []
-        for bin in [1,2,3,6]:  # self.features是一个列表，列表中的每一项是多个卷积层，用来将输入的特征图自适应平均池化到指定大小，然后用1*1的卷积降低维度
+        for bin in [2,3,6,8]:  # self.features是一个列表，列表中的每一项是多个卷积层，用来将输入的特征图自适应平均池化到指定大小，然后用1*1的卷积降低维度
             self.features.append(nn.Sequential(
                 nn.AdaptiveAvgPool2d(bin),
                 nn.Conv2d(in_channels, in_channels//4, kernel_size=1, bias=False),
@@ -344,7 +344,7 @@ if __name__ == "__main__":
     model = GwcSGNet(maxdisp=192)
     left = torch.rand([1, 3, 256, 512])
     right = torch.rand([1, 3, 256, 512])
-    model.eval()
+    model.train()
     out = model(left, right, refine_mode=True)
     for name, p in model.named_parameters():
         print(name)
